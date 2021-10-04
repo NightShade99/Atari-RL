@@ -1,0 +1,31 @@
+
+train_episodes: 1000
+eval_every: 10
+eval_episodes: 10
+batch_size: 512
+memory_size: 10000
+random_action_steps: 1000
+frames_per_sample: 4
+
+env_name: "AirRaid-v0"
+
+model:
+  gamma: 0.9
+  epsilon: 1.0
+  epsilon_min: 0.001
+  epsilon_decay: 0.999
+
+  input_channels: 4
+  projection_dim: 128
+  hidden_size: 256
+  
+  optim:
+    lr: 0.0001
+    betas: [0.9, 0.999]
+    amsgrad: False
+
+
+transform:
+  resize:
+    size: [125, 80]
+  to_tensor:
