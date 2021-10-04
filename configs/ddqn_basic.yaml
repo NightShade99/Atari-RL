@@ -1,22 +1,20 @@
 
-train_episodes: 1000
+train_episodes: 50000
 random_action_steps: 1000
 eval_episodes: 10
-eval_every: 10
+eval_every: 500
 
 env_name: "Breakout-v0"
-batch_size: 512
-memory_size: 10000
+batch_size: 128
+memory_size: 100000
 frames_per_sample: 4
 resolution: [84, 84]
 
 model:
   gamma: 0.9
-  epsilon: 1.0
+  epsilon: 0.9
   epsilon_min: 0.001
   epsilon_decay: 0.999
-  epsilon_decay_interval: 100
-  target_update_interval: 100
 
   input_channels: 4
   projection_dim: 256

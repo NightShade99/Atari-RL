@@ -45,7 +45,7 @@ class StateEncoder(nn.Module):
         self.conv4 = nn.Conv2d(16, 16, kernel_size=3, stride=1, bias=False)
         self.bn4 = nn.BatchNorm2d(16)
         self.relu4 = nn.ReLU()
-        self.projection_fc = nn.Linear(6240, projection_dim)
+        self.projection_fc = nn.Linear(4096, projection_dim)
         self.output_dim = projection_dim
 
     def forward(self, x):

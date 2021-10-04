@@ -16,17 +16,18 @@ def to_numpy(value):
         return value.detach().cpu().numpy()
     elif isinstance(value, (float, bool)):
         return np.array([[float(value)]], dtype=np.float32)
-    elif isinstance(value, int):
-        return np.array([[value]], dtype=np.int64)
+    elif isinstance(value, (int, np.int32, np.int64)):
+        return np.array([[float(value)]], dtype=np.int64)
     else:
         return value
+
 
 class ReplayMemory:
     
     def __init__(self, memory_size, device, resolution=(84, 84)):
         self.device = device
         self.size = memory_size 
-        self.height, self.width = resolution 
+        self.height, self.width = resolution
         
         self.obs = deque(maxlen=memory_size)
         self.next_obs = deque(maxlen=memory_size)
@@ -159,14 +160,14 @@ class Trainer:
         self.logger.print("Beginning training", mode="info")
         
         for episode in range(1, self.config["train_episodes"]+1):    
-            self.model.train()            
+            self.model.train()
             train_metrics = self.train_episode()
             wandb.log({f"Train {key}": value for key, value in train_metrics.items()})
-            self.logger.record("Episode {:4d}/{:4d} {}".format(
+            self.logger.record("Episode {:5d}/{:5d} {}".format(
                 episode, self.config["train_episodes"], " ".join(["[{}] {:.4f}".format(k, v) for k, v in train_metrics.items()])), mode="train")
 
             if episode % self.config["eval_every"] == 0:
-                val_rewards = [] 
+                val_rewards = []
                 for i in range(self.config["eval_episodes"]):
                     reward = self.eval_episode()
                     val_rewards.append(reward)
@@ -174,10 +175,13 @@ class Trainer:
                 print()
                 avg_reward = np.mean(val_rewards)
                 wandb.log({"Val reward": avg_reward, "Episode": episode})
-                self.logger.record("Episode {:4d}/{:4d} [Reward] {:.4f}".format(episode, self.config["train_episodes"], avg_reward), mode="val")
+                self.logger.record("Episode {:5d}/{:5d} [Reward] {:.4f}".format(episode, self.config["train_episodes"], avg_reward), mode="val")
                 
                 if avg_reward > self.best_return:
                     self.best_return = avg_reward
                     self.save_checkpoint()
+                    
+            self.model.update_target_critic()
+            self.model.decay_epsilon()
         print()
         self.logger.print("Completed training", mode="info")

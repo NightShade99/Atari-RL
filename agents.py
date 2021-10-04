@@ -46,7 +46,7 @@ class DoubleDQN:
             self.eps *= self.eps_decay_rate
         else:
             self.eps = self.eps_min
-            
+           
     def update_target_critic(self):
         self.target_q.load_state_dict(self.online_q.state_dict())
     
@@ -64,11 +64,4 @@ class DoubleDQN:
         loss = F.mse_loss(pred_q, trg_q).float()
         loss.backward()
         self.optim.step()
-        
-        if step % self.config["epsilon_decay_interval"] == 0:
-            self.decay_epsilon()
-            
-        if step % self.config["target_update_interval"] == 0:
-            self.update_target_critic() 
-        
-        return {"loss": np.log10(loss.item())}    
+        return {"loss": loss.item(), "epsilon": self.eps}    
