@@ -1,22 +1,25 @@
 
 train_episodes: 1000
-eval_every: 10
+random_action_steps: 1000
 eval_episodes: 10
+eval_every: 10
+
+env_name: "Breakout-v0"
 batch_size: 512
 memory_size: 10000
-random_action_steps: 1000
 frames_per_sample: 4
-
-env_name: "AirRaid-v0"
+resolution: [84, 84]
 
 model:
   gamma: 0.9
   epsilon: 1.0
   epsilon_min: 0.001
   epsilon_decay: 0.999
+  epsilon_decay_interval: 100
+  target_update_interval: 100
 
   input_channels: 4
-  projection_dim: 128
+  projection_dim: 256
   hidden_size: 256
   
   optim:
@@ -24,8 +27,7 @@ model:
     betas: [0.9, 0.999]
     amsgrad: False
 
-
 transform:
   resize:
-    size: [125, 80]
+    size: [84, 84]
   to_tensor:

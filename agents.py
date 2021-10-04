@@ -64,4 +64,11 @@ class DoubleDQN:
         loss = F.mse_loss(pred_q, trg_q).float()
         loss.backward()
         self.optim.step()
+        
+        if step % self.config["epsilon_decay_interval"] == 0:
+            self.decay_epsilon()
+            
+        if step % self.config["target_update_interval"] == 0:
+            self.update_target_critic() 
+        
         return {"loss": np.log10(loss.item())}    
