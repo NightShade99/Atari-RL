@@ -1,0 +1,27 @@
+
+train_episodes: 100000
+memory_init_steps: 50000
+eval_episodes: 10
+eval_every: 100
+learning_interval: 4
+logging_interval: 1
+
+memory_size: 100000
+frames_per_sample: 4
+batch_size: 32
+
+environment:
+  env_name: "BreakoutNoFrameskip-v4"
+  stack_frames: True
+  episodic_life: True
+  clip_rewards: False 
+
+agent:
+  gamma: 0.9
+  eps_max: 1.0
+  eps_min: 0.01
+  eps_decay_steps: 500000
+  target_update_interval: 10000
+  learning_rate: 0.0001
+  input_channels: 4
+  hidden_size: 512
