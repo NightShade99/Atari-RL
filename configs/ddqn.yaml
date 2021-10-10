@@ -1,12 +1,12 @@
 
-train_episodes: 100000
-memory_init_steps: 50000
-eval_episodes: 10
-eval_every: 100
+train_epochs: 10000
+episodes_per_epoch: 1000
+eval_episodes_per_epoch: 100
+eval_every: 10
 learning_interval: 4
-logging_interval: 1
 
 memory_size: 100000
+memory_init_steps: 50000
 frames_per_sample: 4
 batch_size: 32
 

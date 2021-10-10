@@ -55,7 +55,7 @@ class DoubleDQN:
         self.update_target_model()
         return action
     
-    def learning_from_memory(self, batch):
+    def learn_from_memory(self, batch):
         self.learning_steps += 1
         state, action, next_state, reward, done = batch 
         pred_q = self.online_q(state).gather(1, action.view(-1, 1)).squeeze(-1)
@@ -68,5 +68,6 @@ class DoubleDQN:
         self.optim.zero_grad()
         loss = F.huber_loss(pred_q, trg_q).float()
         loss.backward()
+        nn.utils.clip_grad_norm_(self.online_q.parameters(), 1.0)
         self.optim.step()
         return loss.item()    

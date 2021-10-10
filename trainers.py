@@ -27,14 +27,14 @@ class ReplayMemory:
             
     def _insert_transform(self, state, action, next_state, reward, done):
         state = (state * 255).detach().cpu().numpy().astype(np.uint8)
-        next_state = (next_state * 255).detach().cpu().numpy(astype.uint8)
+        next_state = (next_state * 255).detach().cpu().numpy().astype(np.uint8)
         done = int(done)
         return state, action, next_state, reward, done
             
     def add_sample(self, state, action, next_state, reward, done):
         state, action, next_state, reward, done = self._insert_transform(state, action, next_state, reward, done)
         self.states[self.ptr] = state
-        self.next_state[self.ptr] = next_state 
+        self.next_states[self.ptr] = next_state 
         self.actions[self.ptr] = action 
         self.rewards[self.ptr] = reward 
         self.terminal[self.ptr] = done 
@@ -50,7 +50,7 @@ class ReplayMemory:
         action = torch.from_numpy(self.actions[idx]).long().to(self.device)         
         reward = torch.from_numpy(self.rewards[idx]).float().to(self.device)         
         done = torch.from_numpy(self.terminal[idx]).float().to(self.device)         
-        return obs, action, next_obs, reward, done
+        return state, action, next_state, reward, done
     
     
 class Trainer:
@@ -97,7 +97,7 @@ class Trainer:
                 batch = self.memory.get_batch(self.batch_size)
                 _ = self.agent.learn_from_memory(batch)
                 self.agent.learning_steps += 1              
-            utils.progress_bar(progress=(step+1)/self.config["memory_init_steps"], desc="Initializing memory", status="")       
+            utils.progress_bar(progress=(step+1)/self.config["memory_init_steps"], desc="Initializing memory", status="")
         print()
     
     def train_episode(self):
@@ -107,10 +107,10 @@ class Trainer:
         
         state = self.process_state(self.env.reset())
         while not episode_finished:
-            action = self.model.select_action(state)
+            action = self.agent.select_action(state)
             next_frames, reward, done, _ = self.env.step(action)
-            next_obs = self.process_state(next_frames)
-            self.memory.add_sample(to_numpy(obs), to_numpy(action), to_numpy(next_obs), to_numpy(reward), to_numpy(done))
+            next_state = self.process_state(next_frames)
+            self.memory.add_sample(state, action, next_state, reward, done)
             total_reward += reward
             if not done:
                 state = next_state
@@ -119,10 +119,11 @@ class Trainer:
             
             if self.agent.action_steps % self.config["learning_interval"] == 0:
                 batch = self.memory.get_batch(self.batch_size)
-                loss = self.model.learning_step(batch)
+                loss = self.agent.learn_from_memory(batch)
                 self.agent.learning_steps += 1
                 losses.append(loss) 
-                
+        
+        avg_loss = 0.0 if len(losses) == 0 else sum(losses)/len(losses)
         return {"loss": sum(losses)/len(losses), "reward": total_reward} 
     
     @torch.no_grad()
@@ -132,15 +133,15 @@ class Trainer:
         
         state = self.process_state(self.env.reset())
         while not episode_finished:
-            action = self.model.select_action(state, train=False)
+            action = self.agent.select_action(state, train=False)
             next_frames, reward, done, _ = self.env.step(action)
-            next_obs = self.process_state(next_frames)
+            next_state = self.process_state(next_frames)
             total_reward += reward
             if not done:
                 state = next_state
             else:
-                episode_finished = True            
-        return total_reward
+                episode_finished = True     
+        return {"reward": total_reward}
     
     def train(self):
         self.logger.print("Initializing memory", mode="info")
@@ -148,25 +149,33 @@ class Trainer:
         print()
         self.logger.print("Beginning training", mode="info")
         
-        for episode in range(1, self.config["train_episodes"]+1):    
-            self.model.train()
-            train_metrics = self.train_episode()
-            wandb.log({f"Train {key}": value for key, value in train_metrics.items()})
-            if episode % self.config["logging_interval"] == 0:
-                self.logger.record("Episode {:5d}/{:5d} {}".format(
-                    episode, self.config["train_episodes"], " ".join(["[{}] {:.4f}".format(k, v) for k, v in train_metrics.items()])), mode="train")
-
-            if episode % self.config["eval_every"] == 0:
-                val_rewards = []
-                for i in range(self.config["eval_episodes"]):
-                    reward = self.eval_episode()
-                    val_rewards.append(reward)
-                avg_reward = sum(val_rewards)/len(val_rewards)
-                wandb.log({"Val reward": avg_reward, "Episode": episode})
-                self.logger.record("Episode {:5d}/{:5d} [Reward] {:.4f}".format(episode, self.config["train_episodes"], avg_reward), mode="val")
+        for epoch in range(1, self.config["train_epochs"]+1):    
+            self.agent.train()
+            train_meter = utils.AverageMeter()
+            desc = "[TRAIN] Epoch {:4d}/{:4d}".format(epoch, self.config["train_epochs"])
+            for episode in range(self.config["episodes_per_epoch"]):
+                train_metrics = self.train_episode()
+                train_meter.add(train_metrics)
+                utils.progress_bar(progress=(episode+1)/self.config["episodes_per_epoch"], desc=desc, status=train_meter.return_msg())
+            print()
+            wandb.log({"Epoch": epoch, **train_meter.return_dict()})
+            self.logger.write("Epoch {:4d}/{:4d} {}".format(epoch, self.config["train_epochs"], train_meter.return_msg()), mode="train")
+            
+            if epoch % self.config["eval_every"] == 0:
+                self.agent.eval()
+                val_meter = utils.AverageMeter()
+                desc = "{}[VALID] Epoch {:4d}/{:4d}{}".format(utils.COLORS["blue"], epoch, self.config["train_epochs"], utils.COLORS["end"])
+                for episode in range(self.config["eval_episodes_per_epoch"]):
+                    val_metrics = self.eval_episode()
+                    val_meter.add(val_metrics)
+                    utils.progress_bar(progress=(episode+1)/self.config["eval_episodes_per_epoch"], desc=desc, status=val_meter.return_msg())
+                print()
+                avg_metrics = val_meter.return_dict()
+                wandb.log({"Epoch": epoch, "Val reward": avg_metrics["reward"]})
+                self.logger.record("Epoch {:4d}/{:4d} [reward] {:.4f}".format(epoch, self.config["train_epochs"], avg_metrics["reward"]), mode="val")
                 
-                if avg_reward > self.best_return:
-                    self.best_return = avg_reward
+                if avg_metrics["reward"] > self.best_return:
+                    self.best_return = avg_metrics["reward"]
                     self.save_checkpoint()                    
         print()
         self.logger.print("Completed training", mode="info")
