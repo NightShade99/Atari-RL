@@ -62,10 +62,33 @@ class Trainer:
         self.stack_size = self.config["frames_per_sample"]
         self.batch_size = self.config["batch_size"]
         self.best_return = 0
+        self.start_epoch = 1
         
         self.env = make_env(env=gym.make(self.config["environment"].pop("env_name")), **self.config["environment"])
         self.agent = agents.DoubleDQN(self.config["agent"], self.env.action_space.n, self.device)
         self.memory = ReplayMemory(self.config["memory_size"], self.device, self.stack_size)
+        
+        if args["resume"] is not None:
+            self.load_state(args["resume"])
+        if args["load"] is not None:
+            self.load_checkpoint(args["load"])
+        
+    def save_state(self, epoch):
+        state = {"epoch": epoch, "agent": self.agent, "memory": self.memory, "best_return": self.best_return}
+        torch.save(state, os.path.join(self.output_dir, "last_state.pt"))
+        
+    def load_state(self, state_dir):
+        file = os.path.join(state_dir, "last_state.pt")
+        if os.path.exists(file):
+            state = torch.load(file, map_location=self.device)
+            self.agent = state["agent"]
+            self.memory = state["memory"]
+            self.best_return = state["best_return"]
+            self.start_epoch = state["epoch"] + 1
+            self.output_dir = state_dir
+            self.logger.print("Resuming training from saved state", mode="info")
+        else:
+            raise FileNotFoundError(f"Could not find saved state at {state_dir}")
                 
     def save_checkpoint(self):
         torch.save(self.agent, os.path.join(self.output_dir, "checkpoint.pt"))
@@ -74,6 +97,7 @@ class Trainer:
         file = os.path.join(ckpt_dir, "checkpoint.pt")
         if os.path.exists(file):
             self.agent = torch.load(file, map_location=self.device)
+            self.output_dir = ckpt_dir
             self.logger.print("Successfully loaded model checkpoint", mode="info")
         else:
             raise FileNotFoundError(f"Could not find checkpoint at {ckpt_dir}")
@@ -149,22 +173,23 @@ class Trainer:
         print()
         self.logger.print("Beginning training", mode="info")
         
-        for epoch in range(1, self.config["train_epochs"]+1):    
+        for epoch in range(self.start_epoch, self.config["train_epochs"]+1):    
             self.agent.train()
             train_meter = utils.AverageMeter()
-            desc = "[TRAIN] Epoch {:4d}/{:4d}".format(epoch, self.config["train_epochs"])
+            desc = "[TRAIN] Epoch {:3d}/{:3d}".format(epoch, self.config["train_epochs"])
             for episode in range(self.config["episodes_per_epoch"]):
                 train_metrics = self.train_episode()
                 train_meter.add(train_metrics)
                 utils.progress_bar(progress=(episode+1)/self.config["episodes_per_epoch"], desc=desc, status=train_meter.return_msg())
             print()
             wandb.log({"Epoch": epoch, **train_meter.return_dict()})
-            self.logger.write("Epoch {:4d}/{:4d} {}".format(epoch, self.config["train_epochs"], train_meter.return_msg()), mode="train")
+            self.logger.write("Epoch {:3d}/{:3d} {}".format(epoch, self.config["train_epochs"], train_meter.return_msg()), mode="train")
+            self.save_state(epoch)
             
             if epoch % self.config["eval_every"] == 0:
                 self.agent.eval()
                 val_meter = utils.AverageMeter()
-                desc = "{}[VALID] Epoch {:4d}/{:4d}{}".format(utils.COLORS["blue"], epoch, self.config["train_epochs"], utils.COLORS["end"])
+                desc = "{}[VALID] Epoch {:3d}/{:3d}{}".format(utils.COLORS["blue"], epoch, self.config["train_epochs"], utils.COLORS["end"])
                 for episode in range(self.config["eval_episodes_per_epoch"]):
                     val_metrics = self.eval_episode()
                     val_meter.add(val_metrics)
@@ -172,7 +197,7 @@ class Trainer:
                 print()
                 avg_metrics = val_meter.return_dict()
                 wandb.log({"Epoch": epoch, "Val reward": avg_metrics["reward"]})
-                self.logger.record("Epoch {:4d}/{:4d} [reward] {:.4f}".format(epoch, self.config["train_epochs"], avg_metrics["reward"]), mode="val")
+                self.logger.record("Epoch {:3d}/{:3d} [reward] {:.4f}".format(epoch, self.config["train_epochs"], avg_metrics["reward"]), mode="val")
                 
                 if avg_metrics["reward"] > self.best_return:
                     self.best_return = avg_metrics["reward"]

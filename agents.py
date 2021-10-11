@@ -63,11 +63,11 @@ class DoubleDQN:
         with torch.no_grad():
             next_action = self.online_q(next_state).argmax(-1)
             next_values = self.target_q(next_state).gather(1, next_action.view(-1, 1)).squeeze(-1)
-            trg_q = reward + (1 - done) * self.gamma * next_values
+            trg_q = torch.sign(reward) + (1 - done) * self.gamma * next_values
 
         self.optim.zero_grad()
         loss = F.huber_loss(pred_q, trg_q).float()
         loss.backward()
         nn.utils.clip_grad_norm_(self.online_q.parameters(), 1.0)
         self.optim.step()
-        return loss.item()    
+        return loss.item()

@@ -1,5 +1,5 @@
 
-train_epochs: 10000
+train_epochs: 1000
 episodes_per_epoch: 1000
 eval_episodes_per_epoch: 100
 eval_every: 10
@@ -14,7 +14,6 @@ environment:
   env_name: "BreakoutNoFrameskip-v4"
   stack_frames: True
   episodic_life: True
-  clip_rewards: False 
 
 agent:
   gamma: 0.9
