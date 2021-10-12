@@ -11,8 +11,7 @@ import torch.nn.functional as F
 class DoubleDQN:
     
     def __init__(self, config, action_size, device):
-        self.action_steps = 0
-        self.learning_steps = 0
+        self.step = 0
         self.config = config 
         self.action_size = action_size
         self.gamma = config.get("gamma", 0.99)
@@ -35,18 +34,18 @@ class DoubleDQN:
         self.target_q.eval()
         
     def update_epsilon(self):
-        if self.action_steps <= self.eps_decay_steps:
-            self.eps = self.eps_max - (self.action_steps / self.eps_decay_steps) * (self.eps_max - self.eps_min) 
+        if self.step <= self.eps_decay_steps:
+            self.eps = self.eps_max - (self.step / self.eps_decay_steps) * (self.eps_max - self.eps_min) 
         else:
             self.eps = self.eps_min
             
     def update_target_model(self):
-        if self.learning_steps % self.config["target_update_interval"] == 0:
+        if self.step % self.config["target_update_interval"] == 0:
             self.target_q.load_state_dict(self.online_q.state_dict())
     
     @torch.no_grad()
     def select_action(self, state, train=True):
-        self.action_steps = self.action_steps+1 if train else self.action_steps
+        self.step = self.step+1 if train else self.step
         if random.uniform(0, 1) < self.eps:
             action = random.choice(np.arange(self.action_size))
         else:
@@ -56,7 +55,6 @@ class DoubleDQN:
         return action
     
     def learn_from_memory(self, batch):
-        self.learning_steps += 1
         state, action, next_state, reward, done = batch 
         pred_q = self.online_q(state).gather(1, action.view(-1, 1)).squeeze(-1)
         

@@ -12,8 +12,7 @@ class StateEncoder(nn.Module):
         self.conv1 = nn.Conv2d(input_channels, 32, kernel_size=8, stride=4, bias=False)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2, bias=False)
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, bias=False)            
-        self.conv4 = nn.Conv2d(64, 1024, kernel_size=3, stride=1, bias=False)
-        self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        self.conv4 = nn.Conv2d(64, 1024, kernel_size=7, stride=1, bias=False)
         self.relu = nn.ReLU()
         self.out_dim = 1024
 
@@ -22,7 +21,6 @@ class StateEncoder(nn.Module):
         x = self.relu(self.conv2(x))
         x = self.relu(self.conv3(x))
         x = self.relu(self.conv4(x))
-        x = self.avgpool(x)
         x = torch.flatten(x, 1)
         return x
     
@@ -43,6 +41,15 @@ class QNetwork(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, action_size)
         )
+        self.init_network()
+        
+    def init_network(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 0)
+                nn.init.constant_(m.bias, 1)
         
     def forward(self, x):
         x = self.encoder(x)

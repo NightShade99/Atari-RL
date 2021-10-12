@@ -56,7 +56,7 @@ class ReplayMemory:
 class Trainer:
     
     def __init__(self, args):
-        self.config, self.output_dir, self.logger, self.device = utils.initialize_experiment(args, output_root="outputs/double_q/breakout")
+        self.config, self.output_dir, self.logger, self.device = utils.initialize_experiment(args, output_root="outputs/duel_dqn/breakout")
         run = wandb.init(project="atari-experiments")
         self.logger.write("Wandb url: {}".format(run.get_url()), mode="info")
         self.stack_size = self.config["frames_per_sample"]
@@ -72,24 +72,7 @@ class Trainer:
             self.load_state(args["resume"])
         if args["load"] is not None:
             self.load_checkpoint(args["load"])
-        
-    def save_state(self, epoch):
-        state = {"epoch": epoch, "agent": self.agent, "memory": self.memory, "best_return": self.best_return}
-        torch.save(state, os.path.join(self.output_dir, "last_state.pt"))
-        
-    def load_state(self, state_dir):
-        file = os.path.join(state_dir, "last_state.pt")
-        if os.path.exists(file):
-            state = torch.load(file, map_location=self.device)
-            self.agent = state["agent"]
-            self.memory = state["memory"]
-            self.best_return = state["best_return"]
-            self.start_epoch = state["epoch"] + 1
-            self.output_dir = state_dir
-            self.logger.print("Resuming training from saved state", mode="info")
-        else:
-            raise FileNotFoundError(f"Could not find saved state at {state_dir}")
-                
+
     def save_checkpoint(self):
         torch.save(self.agent, os.path.join(self.output_dir, "checkpoint.pt"))
     
@@ -120,7 +103,6 @@ class Trainer:
             if step % self.config["learning_interval"] == 0 and (self.memory.filled > self.batch_size):
                 batch = self.memory.get_batch(self.batch_size)
                 _ = self.agent.learn_from_memory(batch)
-                self.agent.learning_steps += 1              
             utils.progress_bar(progress=(step+1)/self.config["memory_init_steps"], desc="Initializing memory", status="")
         print()
     
@@ -141,10 +123,9 @@ class Trainer:
             else:
                 episode_finished = True
             
-            if self.agent.action_steps % self.config["learning_interval"] == 0:
+            if self.agent.step % self.config["learning_interval"] == 0:
                 batch = self.memory.get_batch(self.batch_size)
                 loss = self.agent.learn_from_memory(batch)
-                self.agent.learning_steps += 1
                 losses.append(loss) 
         
         avg_loss = 0.0 if len(losses) == 0 else sum(losses)/len(losses)
@@ -173,7 +154,7 @@ class Trainer:
         print()
         self.logger.print("Beginning training", mode="info")
         
-        for epoch in range(self.start_epoch, self.config["train_epochs"]+1):    
+        for epoch in range(self.start_epoch, self.config["train_epochs"]+1):
             self.agent.train()
             train_meter = utils.AverageMeter()
             desc = "[TRAIN] Epoch {:3d}/{:3d}".format(epoch, self.config["train_epochs"])
@@ -184,7 +165,6 @@ class Trainer:
             print()
             wandb.log({"Epoch": epoch, **train_meter.return_dict()})
             self.logger.write("Epoch {:3d}/{:3d} {}".format(epoch, self.config["train_epochs"], train_meter.return_msg()), mode="train")
-            self.save_state(epoch)
             
             if epoch % self.config["eval_every"] == 0:
                 self.agent.eval()
