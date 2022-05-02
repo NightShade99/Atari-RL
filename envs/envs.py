@@ -121,10 +121,14 @@ class VizdoomEnv:
         return np.expand_dims(np.asarray(self.state_deck), 0)
     
     def step(self, action):        
-        reward = self.env.make_action(action, self.frame_skip)
+        reward = self.env.make_action(self.actions[action], self.frame_skip)
         done = self.env.is_episode_finished()
-        self.state_deck.append(self._warp(self.env.get_state().screen_buffer))
+        if done:
+            next_state = np.zeros_like(self.state_deck[-1])
+        else:
+            next_state = self._warp(self.env.get_state().screen_buffer)        
+        self.state_deck.append(next_state)
         return np.expand_dims(np.asarray(self.state_deck), 0), reward, done, {}
     
     def random_action(self):
-        return np.random.randint(0, self.num_actions, size=1)
+        return np.random.randint(0, self.num_actions, size=1).item()

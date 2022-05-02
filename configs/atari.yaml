@@ -6,7 +6,7 @@ eval_every: 10
 learning_interval: 4
 
 memory_size: 100000
-memory_init_steps: 50000
+memory_init_steps: 5000
 batch_size: 32
 
 environment:

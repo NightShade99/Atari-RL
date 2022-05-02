@@ -66,6 +66,7 @@ class Trainer:
         self.batch_size = self.config["batch_size"]
         self.best_return = -float('inf')
         self.start_epoch = 1
+        self.args = args
         
         if args.env_type == 'atari':
             self.env = AtariEnv(args.env_name, **self.config['environment'])
