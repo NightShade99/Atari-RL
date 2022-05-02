@@ -86,7 +86,7 @@ def progress_bar(progress=0, desc="Progress", status="", barlen=20):
     text = "\r{}: [{}] {:.2f}% {}".format(
         desc, COLORS["green"] + "="*(length-1) + ">" + COLORS["end"] + " " * (barlen-length), progress * 100, status  
     ) 
-    print(text, end="") 
+    print(text, end="" if progress < 1 else "\n") 
 
 def open_config(file):
     with open(file, "r") as f:
