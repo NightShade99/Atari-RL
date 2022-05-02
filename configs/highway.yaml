@@ -11,8 +11,9 @@ batch_size: 32
 
 environment:
   frame_stack: 4
-  episodic_life: True
-  clip_rewards: False
+  frame_res: [84, 84]
+  frame_skip: 2
+  scaling: 2.5
 
 agent:
   gamma: 0.9

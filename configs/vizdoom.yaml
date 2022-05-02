@@ -11,8 +11,10 @@ batch_size: 32
 
 environment:
   frame_stack: 4
-  episodic_life: True
-  clip_rewards: False
+  frame_skip: 12
+  frame_res: [84, 84]
+  screen_res: RES_640X480
+  screen_format: GRAY8
 
 agent:
   gamma: 0.9

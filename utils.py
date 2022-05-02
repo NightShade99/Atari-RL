@@ -105,8 +105,8 @@ def initialize_experiment(args, output_root, seed=420):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    config = open_config(args["config"])
-    output_dir = os.path.join(output_root, args["output"])
+    config = open_config(args.config)
+    output_dir = os.path.join(output_root, args.output)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     logger = Logger(output_dir)

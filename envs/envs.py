@@ -4,7 +4,7 @@ import gym
 import cv2
 import highway_env
 import numpy as np
-import vizdoom as vzd
+# import vizdoom as vzd
 import itertools as it
 
 from .gym_wrappers import * 
@@ -15,7 +15,7 @@ __all__ = ['AtariEnv', 'HighwayEnv', 'VizdoomEnv']
 
 class AtariEnv:
     
-    def __init__(self, env_name, frames_per_sample=4, episodic_life=True, clip_rewards=False):
+    def __init__(self, env_name, frame_stack=4, episodic_life=True, clip_rewards=False):
         self.env = gym.make(env_name)
         
         if episodic_life:
@@ -27,8 +27,8 @@ class AtariEnv:
             self.env = FireResetEnv(self.env)
 
         self.env = WarpFrameAtari(self.env)
-        if frames_per_sample is not None:
-            self.env = FrameStack(self.env, frames_per_sample)
+        if frame_stack is not None:
+            self.env = FrameStack(self.env, frame_stack)
         if clip_rewards:
             self.env = ClipRewardEnv(self.env)
             
@@ -41,6 +41,9 @@ class AtariEnv:
     def step(self, action):
         next_state, reward, done, info = self.env.step(action)
         return np.transpose(next_state, (2, 0, 1)), reward, done, info
+    
+    def random_action(self):
+        return self.env.action_space.sample()
     
     
 class HighwayEnv:
@@ -67,6 +70,9 @@ class HighwayEnv:
     def step(self, action):
         next_state, reward, done, info = self.env.step(action)
         return next_state, reward, done, info
+    
+    def random_action(self):
+        return self.env.action_space.sample()
     
     
 class VizdoomEnv:
@@ -119,3 +125,6 @@ class VizdoomEnv:
         done = self.env.is_episode_finished()
         self.state_deck.append(self._warp(self.env.get_state().screen_buffer))
         return np.expand_dims(np.asarray(self.state_deck), 0), reward, done, {}
+    
+    def random_action(self):
+        return np.random.randint(0, self.num_actions, size=1)

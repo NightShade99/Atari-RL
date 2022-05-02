@@ -1,17 +1,12 @@
 
 import os 
-import gym
 import utils
 import wandb 
 import torch
 import agents
 import numpy as np 
-import matplotlib.pyplot as plt
 
 from envs.envs import *
-from PIL import Image
-from matplotlib import animation
-from envs.gym_wrappers import make_env
 from gym.wrappers.monitoring.video_recorder import VideoRecorder
 
 
@@ -80,12 +75,12 @@ class Trainer:
             self.env = VizdoomEnv(args.env_name, **self.config['environment'])
         
         self.agent = agents.DoubleDQN(self.config["agent"], self.env.num_actions, self.device)
-        self.memory = ReplayMemory(self.config["memory_size"], self.device, self.stack_size)
+        self.memory = ReplayMemory(self.config["memory_size"], self.device, self.config['environment']['frame_stack'])
         
-        if args["resume"] is not None:
-            self.load_state(args["resume"])
-        if args["load"] is not None:
-            self.load_checkpoint(args["load"])
+        if args.resume is not None:
+            self.load_state(args.resume)
+        if args.load is not None:
+            self.load_checkpoint(args.load)
 
     def save_checkpoint(self):
         torch.save(self.agent, os.path.join(self.output_dir, "checkpoint.pt"))
@@ -107,7 +102,7 @@ class Trainer:
         state = self.process_state(self.env.reset())
         
         for step in range(self.config["memory_init_steps"]):
-            action = self.env.action_space.sample()
+            action = self.env.random_action()
             next_frames, reward, done, _ = self.env.step(action)
             next_state = self.process_state(next_frames)
             self.memory.add_sample(state, action, next_state, reward, done)
@@ -117,7 +112,6 @@ class Trainer:
                 batch = self.memory.get_batch(self.batch_size)
                 _ = self.agent.learn_from_memory(batch)
             utils.progress_bar(progress=(step+1)/self.config["memory_init_steps"], desc="Initializing memory", status="")
-        print()
     
     def train_episode(self):
         episode_finished = False 
