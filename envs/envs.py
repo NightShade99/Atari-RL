@@ -4,7 +4,7 @@ import gym
 import cv2
 import highway_env
 import numpy as np
-# import vizdoom as vzd
+import vizdoom as vzd
 import itertools as it
 
 from .gym_wrappers import * 
@@ -36,11 +36,11 @@ class AtariEnv:
 
     def reset(self):
         state = self.env.reset()
-        return np.transpose(state, (2, 0, 1))
+        return np.expand_dims(np.transpose(state, (2, 0, 1)), 0)
     
     def step(self, action):
         next_state, reward, done, info = self.env.step(action)
-        return np.transpose(next_state, (2, 0, 1)), reward, done, info
+        return np.expand_dims(np.transpose(next_state, (2, 0, 1)), 0), reward, done, info
     
     def random_action(self):
         return self.env.action_space.sample()
@@ -65,11 +65,11 @@ class HighwayEnv:
         
     def reset(self):
         state = self.env.reset()
-        return state 
+        return np.expand_dims(state, 0) 
     
     def step(self, action):
         next_state, reward, done, info = self.env.step(action)
-        return next_state, reward, done, info
+        return np.expand_dims(next_state, 0), reward, done, info
     
     def random_action(self):
         return self.env.action_space.sample()
