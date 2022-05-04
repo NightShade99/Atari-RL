@@ -89,7 +89,7 @@ def main(args):
             logits = nn.log_softmax(output, axis=-1)
             labels = jax.nn.one_hot(actions, args.num_actions)
             loss = optax.softmax_cross_entropy(logits, labels).mean()
-            acc = jnp.mean(jnp.argmax(logits) == labels)
+            acc = jnp.mean(jnp.argmax(logits, -1) == actions)
             return loss, acc
         
         (loss, acc), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
@@ -106,7 +106,7 @@ def main(args):
         logits = nn.log_softmax(output, axis=-1)
         labels = jax.nn.one_hot(actions, args.num_actions)
         loss = optax.softmax_cross_entropy(logits, labels).mean()
-        acc = jnp.mean(jnp.argmax(logits) == labels)
+        acc = jnp.mean(jnp.argmax(logits, -1) == actions)
         return loss, acc
     
     def evaluate(dataloader):
