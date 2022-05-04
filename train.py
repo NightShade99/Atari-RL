@@ -62,7 +62,7 @@ def main(args):
     model_rng, dropout_rng = jax.random.split(rng)
     init_rngs = {'params': model_rng, 'dropout': dropout_rng}
     
-    params = model.init(init_rngs, jnp.ones((1, *state_shape)))
+    params = model.init(init_rngs, jnp.ones((args.batch_size, *state_shape)))
     lr_func = optax.cosine_decay_schedule(
         init_value=args.base_lr, decay_steps=len(trainloader)*args.train_epochs, alpha=1e-10
     )
@@ -136,7 +136,6 @@ def main(args):
             loss, acc, params, state = train_step(params, state, batch)
             meter.add({'loss': loss, 'accuracy': acc.item()})
             pbar(p=(step+1)/len(trainloader), msg=meter.msg())
-            break
             
         avg_train_loss, avg_train_acc = meter.get()['loss'], meter.get()['accuracy']
         avg_test_loss, avg_test_acc = evaluate(testloader)
