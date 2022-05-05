@@ -4,9 +4,11 @@ import utils
 import wandb 
 import torch
 import agents
+import pickle
 import numpy as np 
 
 from envs.envs import *
+from tqdm import tqdm
 from gym.wrappers.monitoring.video_recorder import VideoRecorder
 
 
@@ -155,6 +157,21 @@ class Trainer:
             else:
                 episode_finished = True     
         return {"reward": total_reward}
+    
+    @torch.no_grad()
+    def collect_experience(self):
+        states, actions = [], []
+        state = self.env.reset()
+        
+        for _ in tqdm(range(self.args.num_samples)):
+            action = self.agent.select_action(self.process_state(state), train=False)
+            states.append(state), actions.append(action)
+            next_state, _, done, _ = self.env_step(action)
+            state = next_state if not done else self.env.reset()
+            
+        savedata = {'states': np.concatenate(states, 0), 'actions': np.concatenate(actions, 0)}
+        with open(os.path.join(self.args.dset_save_dir, self.args.env_name), 'wb') as f:
+            pickle.dump(savedata, f)
     
     @torch.no_grad()
     def create_animation(self, attempts=10):
