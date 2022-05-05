@@ -5,13 +5,13 @@ import logging
 import numpy as np
 from datetime import datetime
 
-__all__ = ['pbar', 'AvgMeter', 'Logger']
+__all__ = ['pbar', 'AvgMeter', 'Logger', 'COLORS']
 
 COLORS = {
     "yellow": "\x1b[33m", 
     "blue": "\x1b[94m", 
     "green": "\x1b[32m",
-    "red": "\x1b[33m", 
+    "red": "\033[31m", 
     "end": "\033[0m"
 }
 
