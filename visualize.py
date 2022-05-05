@@ -115,7 +115,8 @@ def main(args):
                     axarr[j].axis('off')
                 
                 temp_list.append(im)
-        img_list.append(temp_list)
+            img_list.append(temp_list)
+            
         pbar(p=(step+1)/len(loader), msg=meter.msg())         
         
     anim = animation.ArtistAnimation(fig, img_list, interval=10000, blit=True)
