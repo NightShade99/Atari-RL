@@ -110,8 +110,9 @@ def main(args):
                     # ... and attn probs corresponding to CLS token for remaining 441 tokens
                     attn_prob_full = attn_probs[layer_id][i, j-1, 0, 1:].reshape(21, 21)
                     attn_prob_full = cv2.resize(np.asarray(attn_prob_full), resolution, cv2.INTER_AREA) 
+                    min_attn, max_attn = attn_prob_full.min(), attn_prob_full.max()
                     
-                    im = axarr[j].imshow(attn_prob_full, cmap='plasma', vmin=0, vmax=1)
+                    im = axarr[j].imshow(attn_prob_full, cmap='plasma', vmin=min_attn, vmax=max_attn)
                     axarr[j].axis('off')
                 
                 temp_list.append(im)
