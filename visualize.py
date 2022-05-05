@@ -39,7 +39,7 @@ def main(args):
         test_dset,
         batch_size=args.batch_size,
         shuffle=False,
-        drop_last=False,
+        drop_last=True,
         num_workers=args.num_workers,
         collate_fn=numpy_collate
     )
