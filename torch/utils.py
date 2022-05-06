@@ -124,6 +124,7 @@ def initialize_experiment(args, output_root, ckpt_dir=None, seed=420):
             f.write(yaml.dump(config))
     else:
         output_dir = ckpt_dir
+        logger = Logger(output_dir)
 
     device = torch.device("cpu")
     if torch.cuda.is_available():

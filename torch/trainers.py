@@ -6,6 +6,7 @@ import wandb
 import torch
 import agents
 import pickle
+import warnings
 import numpy as np 
 import torch.optim as optim
 import matplotlib.pyplot as plt
@@ -15,6 +16,8 @@ from tqdm import tqdm
 from networks import *
 from envs.envs import *
 from gym.wrappers.monitoring.video_recorder import VideoRecorder
+
+warnings.filterwarnings(action='ignore')
 
 
 class ReplayMemory:
@@ -64,7 +67,7 @@ class Trainer:
     
     def __init__(self, args):
         self.config, self.output_dir, self.logger, self.device = utils.initialize_experiment(
-            args, output_root=f"outputs/duel_dqn/{args.env_type}/{args.env_name}"
+            args, output_root=f"outputs/duel_dqn/{args.env_type}/{args.env_name}", ckpt_dir=args.load
         )
         if args.log_wandb:
             run = wandb.init(project="atari-experiments")
@@ -83,7 +86,7 @@ class Trainer:
             self.env = VizdoomEnv(args.env_name, **self.config['environment'])
         
         self.agent = agents.DoubleDQN(self.config["agent"], self.env.num_actions, self.device)
-        self.memory = ReplayMemory(self.config["memory_size"], self.device, self.config['environment']['frame_stack'])
+        self.memory = ReplayMemory(self.args.memory_size, self.device, self.config['environment']['frame_stack'])
         
         if args.resume is not None:
             self.load_state(args.resume)
@@ -103,7 +106,7 @@ class Trainer:
             raise FileNotFoundError(f"Could not find checkpoint at {ckpt_dir}")
         
     def process_state(self, state):
-        state = torch.from_numpy(state) / 255.0
+        state = torch.from_numpy(state / 255.0).float()
         return state.to(self.device)
         
     def initialize_memory(self):
@@ -183,7 +186,7 @@ class Trainer:
         os.makedirs(os.path.join(self.output_dir, "videos"), exist_ok=True)
 
         for i in range(attempts):
-            rec = VideoRecorder(self.env, path=os.path.join(self.output_dir, "videos", f"attempt_{i}.mp4"), enabled=True)
+            rec = VideoRecorder(self.env.env, path=os.path.join(self.output_dir, "videos", f"attempt_{i}.mp4"), enabled=True)
             self.agent.eval()
             total_reward = 0
             complete = False
@@ -199,14 +202,13 @@ class Trainer:
                 
                 if done:
                     state = self.process_state(self.env.reset())
-                    if info['lives'] == 0:
-                        complete = True
+                    complete = True
                 else:
                     state = next_state
                     
             rec.close()
             rec.enabled = False
-            self.env.close()
+            self.env.env.close()
             print("[Attempt {:2d}] Total reward: {:.4f}".format(i, total_reward))
         
     def train(self):
@@ -284,22 +286,16 @@ class AttentionTrainer:
             self.env = HighwayEnv(args.env_name, **self.config['environment'])
         elif args.env_type == 'vizdoom':
             self.env = VizdoomEnv(args.env_name, **self.config['environment'])
-        
-        self.agent = agents.DoubleDQN(self.config["agent"], self.env.num_actions, self.device)
-        self.memory = ReplayMemory(self.config["memory_size"], self.device, self.config['environment']['frame_stack'])
-        
-        assert args.load is not None, f'Agent checkpoint needed for attention training'            
-        self.load_checkpoint(args.load)
-        
+            
         obs_shape = (4, 84, 84)
         self.h_patches, self.w_patches = (obs_shape[1] // args.patch_size), (obs_shape[2] // args.patch_size)   
         num_patches = self.h_patches * self.w_patches
-        
+            
         # Attention model
         self.model = ViTModel(
             num_layers=args.num_layers,
             num_heads=args.num_heads,
-            num_actions=args.num_actions,
+            num_actions=self.env.num_actions,
             patch_size=args.patch_size,
             in_channels=obs_shape[0],
             seqlen=num_patches,
@@ -309,11 +305,15 @@ class AttentionTrainer:
         )
         self.optimizer = optim.Adam(self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
         self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=args.train_epochs, eta_min=1e-10)
+        
+        assert args.load is not None, f'Agent checkpoint needed for attention training'            
+        self.agent = torch.load(os.path.join(args.load, 'checkpoint.pt'), map_location=self.device)
+        self.memory = ReplayMemory(self.config["memory_size"], self.device, self.config['environment']['frame_stack'])
 
     def save_checkpoint(self):
         state = {
             'model': self.model.state_dict(), 
-            'optim': self.optim.state_dict(), 
+            'optim': self.optimizer.state_dict(), 
             'scheduler': self.scheduler.state_dict()
         }
         torch.save(state, os.path.join(self.output_dir, "checkpoint.pt"))
@@ -335,18 +335,18 @@ class AttentionTrainer:
         state = torch.from_numpy(state) / 255.0
         return state.to(self.device)
         
-    @torch.no_grad
     def initialize_memory(self):
         state = self.process_state(self.env.reset())
         
-        for step in range(self.config["memory_size"]):
-            action = self.agent.select_action(state, train=False)
+        for step in range(self.args.memory_size):
+            with torch.no_grad():
+                action = self.agent.select_action(state, train=False)
             next_frames, reward, done, _ = self.env.step(action)
             next_state = self.process_state(next_frames)
             
             self.memory.add_sample(state, action, next_state, reward, done)
             state = next_state if not done else self.process_state(self.env.reset())            
-            utils.progress_bar(progress=(step+1)/self.config["memory_size"], desc="Initializing memory", status="")
+            utils.progress_bar(progress=(step+1)/self.args.memory_size, desc="Initializing memory", status="")
     
     def train_step(self, batch):
         states, actions = batch[0].to(self.device), batch[1].to(self.device)
@@ -446,22 +446,22 @@ class AttentionTrainer:
         os.makedirs(os.path.join(self.output_dir, 'attn_viz'), exist_ok=True)
         
         for i, (state, attn_prob) in enumerate(zip(all_states, all_attn_probs)):
-            for j in range(self.args.num_heads+1):
-                plt.figure(figsize=(4 * (self.args.num_heads+1), 4))
-                
+            plt.figure(figsize=(4 * (self.args.num_heads+1), 4))
+            
+            for j in range(self.args.num_heads+1):    
                 if j == 0:
-                    plt.subplot(1, self.num_heads+1, 1)
+                    plt.subplot(1, self.args.num_heads+1, 1)
                     plt.imshow(state[-1, :, :], cmap='gray')
                     plt.axis('off')
                 else:
-                    attn = attn_prob[j, 0, 1:].detach().cpu().numpy().reshape(self.h_patches, self.w_patches)
+                    attn = attn_prob[j-1, 0, 1:].detach().cpu().numpy().reshape(self.h_patches, self.w_patches)
                     attn = cv2.resize(attn, (state.shape[2], state.shape[1]), cv2.INTER_AREA)
-                    plt.subplot(1, self.num_heads+1, j+1)
+                    plt.subplot(1, self.args.num_heads+1, j+1)
                     plt.imshow(attn, cmap='plasma', vmin=attn.min(), vmax=attn.max())
                     plt.axis('off')
                 
-                plt.tight_layout()
-                plt.savefig(os.path.join(self.output_dir, 'attn_viz', f'{i}.png'))
-                plt.close()
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.output_dir, 'attn_viz', f'{i}.png'))
+            plt.close()
         
         return total_reward

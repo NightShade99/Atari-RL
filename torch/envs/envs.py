@@ -52,10 +52,11 @@ class HighwayEnv:
         config = {
             'observation': {
                 'type': 'GrayscaleObservation',
-                'observation_shape': frame_res,
+                'observation_shape': tuple(frame_res),
                 'stack_size': frame_stack,
                 'weights': [0.2989, 0.5870, 0.1140],
-                'scaling': scaling
+                'scaling': scaling,
+                'duration': 40
             },
             'policy_frequency': frame_skip
         }

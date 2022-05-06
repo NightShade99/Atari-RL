@@ -133,7 +133,7 @@ class ViTModel(nn.Module):
         x = self.upscale(x)
         
         idx = torch.arange(x.size(1)+1).to(x.device)
-        x = torch.cat([self.cls_token, x], 1) + self.embedding(idx)
+        x = torch.cat([self.cls_token.repeat(x.size(0), 1, 1), x], 1) + self.embedding(idx)
         
         layerwise_attn = {}
         for i in range(self.num_layers):
