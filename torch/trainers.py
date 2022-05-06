@@ -1,6 +1,7 @@
 
 import os 
 import cv2
+import time
 import utils
 import wandb 
 import torch
@@ -8,6 +9,7 @@ import agents
 import pickle
 import warnings
 import numpy as np 
+import vizdoom as vzd
 import torch.optim as optim
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
@@ -210,6 +212,32 @@ class Trainer:
             rec.enabled = False
             self.env.env.close()
             print("[Attempt {:2d}] Total reward: {:.4f}".format(i, total_reward))
+            
+    @torch.no_grad()
+    def create_vzd_animation(self):
+        self.env.env.close()
+        self.env.env.set_window_visible(True)
+        self.env.env.set_mode(vzd.Mode.ASYNC_PLAYER)
+        self.env.env.init()
+        self.agent.eval()
+        os.makedirs(os.path.join(self.output_dir, 'videos'), exist_ok=True)
+        
+        for i in range(5):
+            state = self.process_state(self.env.reset())
+            
+            while True:
+                action = self.agent.select_action(state, train=False)
+                next_state, _, done, _ = self.env.step(action, train=False)
+                if not done:
+                    state = self.process_state(next_state)
+                else:
+                    break
+                    
+            time.sleep(1.0)
+            total_reward = self.env.env.get_total_reward()
+            self.logger.print('Episode: {:3d} - Reward: {:4d}'.format(i+1, round(total_reward)))
+            
+        self.env.env.close()
         
     def train(self):
         self.logger.print("Initializing memory", mode="info")
