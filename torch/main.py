@@ -50,7 +50,10 @@ if __name__ == '__main__':
     elif args.task == "anim":
         trainer = trainers.Trainer(args)
         assert args.load is not None, "Load a model for inference tasks"
-        trainer.create_animation()
+        if args.env_type != 'vizdoom':
+            trainer.create_animation()
+        else:
+            trainer.create_vzd_animation()
         
     elif args.task == "dset":
         trainer = trainers.Trainer(args)

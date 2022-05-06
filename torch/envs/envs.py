@@ -121,8 +121,14 @@ class VizdoomEnv:
             self.state_deck.append(self._warp(self.env.get_state().screen_buffer))
         return np.expand_dims(np.asarray(self.state_deck), 0)
     
-    def step(self, action):        
-        reward = self.env.make_action(self.actions[action], self.frame_skip)
+    def step(self, action, train=True):        
+        if train:
+            reward = self.env.make_action(self.actions[action], self.frame_skip)
+        else:
+            reward = self.env.set_action(self.actions[action])
+            for _ in range(self.frame_skip):
+                self.env.advance_action()
+        
         done = self.env.is_episode_finished()
         if done:
             next_state = np.zeros_like(self.state_deck[-1])
