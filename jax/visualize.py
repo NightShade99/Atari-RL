@@ -95,7 +95,7 @@ def main(args):
                 # After the operation below, we have selected i-th sample, (j-1)-th head ...
                 # ... and attn probs corresponding to CLS token for remaining 441 tokens
                 attn = attn_probs[args.num_layers-1][0, j-1, 0, 1:].reshape(21, 21)
-                attn = cv2.resize(np.asarray(attn), resolution, cv2.INTER_AREA) 
+                attn = cv2.resize(np.asarray(attn), resolution, cv2.INTER_AREA)
                 
                 plt.subplot(1, args.num_heads+1, j+1)
                 plt.imshow(attn, cmap='plasma', vmin=attn.min(), vmax=attn.max())

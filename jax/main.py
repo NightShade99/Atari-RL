@@ -88,14 +88,14 @@ def main(args):
  
     assert args.load is not None, f'Agent checkpoint needed for attention training'            
     agent = load_checkpoint(args.load)
-    memory = ReplayMemory(config["memory_size"], device, config['environment']['frame_stack'])        
+    memory = ReplayMemory(args.memory_size, device, config['environment']['frame_stack'])        
     state_shape = (84, 84, config['environment']['frame_stack'])
     
     # Attention model
     model = ViTModel(
         num_layers=args.num_layers,
         num_heads=args.num_heads,
-        num_actions=args.num_actions,
+        num_actions=env.num_actions,
         patch_size=args.patch_size,
         model_dim=args.model_dim,
         mlp_hidden_dim=args.mlp_hidden_dim,
@@ -118,14 +118,14 @@ def main(args):
     def initialize_memory():
         state = process_state(env.reset())
         
-        for step in range(config["memory_size"]):
+        for step in range(args.memory_size):
             action = agent.select_action(state, train=False)
             next_frames, reward, done, _ = env.step(action)
             next_state = process_state(next_frames)
             
             memory.add_sample(state, action, next_state, reward, done)
             state = next_state if not done else process_state(env.reset())            
-            utils.progress_bar(progress=(step+1)/config["memory_size"], desc="Initializing memory", status="")
+            utils.progress_bar(progress=(step+1)/args.memory_size, desc="Initializing memory", status="")
     
     @jax.jit
     def train_step(params, state, batch):
@@ -162,7 +162,7 @@ def main(args):
     for epoch in range(start_epoch, args.train_epochs+1):
         agent.train()
         train_meter = utils.AverageMeter()
-        desc = "[TRAIN] Epoch {:3d}/{:3d}".format(epoch, args.train_epochs["train_epochs"])
+        desc = "[TRAIN] Epoch {:3d}/{:3d}".format(epoch, args.train_epochs)
         
         for step in range(args.train_steps_per_epoch):
             batch = memory.get_batch(args.batch_size)
@@ -241,8 +241,8 @@ if __name__ == '__main__':
     ap.add_argument('--num_samples', default=1_000_000, type=int)
     
     # Attention training args
-    ap.add_argument('--num_actions', required=True, type=int)
     ap.add_argument('--patch_size', default=4, type=int)
+    ap.add_argument('--batch_size', default=128, type=int)
     ap.add_argument('--num_layers', default=2, type=int)
     ap.add_argument('--num_heads', default=1, type=int)
     ap.add_argument('--model_dim', default=256, type=int)
@@ -253,6 +253,7 @@ if __name__ == '__main__':
     ap.add_argument('--train_epochs', default=100, type=int)
     ap.add_argument('--train_steps_per_epoch', default=1000, type=int)
     ap.add_argument('--eval_steps_per_epoch', default=1000, type=int)
+    ap.add_argument('--mem_refresh_interval', default=5, type=int)
     
     args = ap.parse_args()
     
