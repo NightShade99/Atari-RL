@@ -1,0 +1,26 @@
+
+train_epochs: 1000
+episodes_per_epoch: 1000
+eval_episodes_per_epoch: 100
+eval_every: 10
+learning_interval: 4
+
+memory_size: 100000
+memory_init_steps: 5000
+batch_size: 32
+
+environment:
+  frame_stack: 4
+  frame_res: [84, 84]
+  frame_skip: 2
+  scaling: 2.5
+
+agent:
+  gamma: 0.9
+  eps_max: 1.0
+  eps_min: 0.01
+  eps_decay_steps: 500000
+  target_update_interval: 10000
+  learning_rate: 0.00001
+  input_channels: 4
+  hidden_size: 512

@@ -19,17 +19,39 @@ if __name__ == '__main__':
     ap.add_argument('--output', default=dt.now().strftime('%Y-%m-%d_%H-%M'), type=str)
     ap.add_argument('--dset_save_dir', default='./datasets', type=str)
     ap.add_argument('--num_samples', default=1_000_000, type=int)
+    
+    # Attention training args
+    ap.add_argument('--num_actions', required=True, type=int)
+    ap.add_argument('--patch_size', default=4, type=int)
+    ap.add_argument('--num_layers', default=2, type=int)
+    ap.add_argument('--num_heads', default=1, type=int)
+    ap.add_argument('--model_dim', default=256, type=int)
+    ap.add_argument('--mlp_hidden_dim', default=512, type=int)
+    ap.add_argument('--attn_dropout_rate', default=0.1, type=float)
+    ap.add_argument('--lr', default=0.0001, type=float)
+    ap.add_argument('--weight_decay', default=1e-06, type=float)
+    ap.add_argument('--train_epochs', default=100, type=int)
+    ap.add_argument('--train_steps_per_epoch', default=1000, type=int)
+    ap.add_argument('--eval_steps_per_epoch', default=1000, type=int)
+    
     args = ap.parse_args()
     
-    trainer = trainers.Trainer(args)
-
+    
     if args.task == 'train':
+        trainer = trainers.Trainer(args)
         trainer.train()
         
     elif args.task == "anim":
+        trainer = trainers.Trainer(args)
         assert args.load is not None, "Load a model for inference tasks"
         trainer.create_animation()
         
     elif args.task == "dset":
+        trainer = trainers.Trainer(args)
         assert args.load is not None, "Load a model for inference tasks"
         trainer.collect_experience()
+        
+    elif args.task == 'attn':
+        trainer = trainers.AttentionTrainer(args)
+        assert args.load is not None, "Load a model for inference tasks"
+        trainer.visualize_attn()

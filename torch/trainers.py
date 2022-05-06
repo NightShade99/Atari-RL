@@ -1,14 +1,19 @@
 
 import os 
+import cv2
 import utils
 import wandb 
 import torch
 import agents
 import pickle
 import numpy as np 
+import torch.optim as optim
+import matplotlib.pyplot as plt
+import torch.nn.functional as F
 
-from envs.envs import *
 from tqdm import tqdm
+from networks import *
+from envs.envs import *
 from gym.wrappers.monitoring.video_recorder import VideoRecorder
 
 
@@ -257,3 +262,206 @@ class Trainer:
                     self.save_checkpoint()                    
         print()
         self.logger.print("Completed training", mode="info")
+    
+    
+class AttentionTrainer:
+    
+    def __init__(self, args):
+        self.config, self.output_dir, self.logger, self.device = utils.initialize_experiment(
+            args, output_root=f"outputs/attention/{args.env_type}/{args.env_name}", ckpt_dir=args.load
+        )
+        if args.log_wandb:
+            run = wandb.init(project="atari-experiments")
+            self.logger.write("Wandb url: {}".format(run.get_url()), mode="info")
+            
+        self.start_epoch = 1
+        self.best_acc = 0
+        self.args = args
+        
+        if args.env_type == 'atari':
+            self.env = AtariEnv(args.env_name, **self.config['environment'])
+        elif args.env_type == 'highway':
+            self.env = HighwayEnv(args.env_name, **self.config['environment'])
+        elif args.env_type == 'vizdoom':
+            self.env = VizdoomEnv(args.env_name, **self.config['environment'])
+        
+        self.agent = agents.DoubleDQN(self.config["agent"], self.env.num_actions, self.device)
+        self.memory = ReplayMemory(self.config["memory_size"], self.device, self.config['environment']['frame_stack'])
+        
+        assert args.load is not None, f'Agent checkpoint needed for attention training'            
+        self.load_checkpoint(args.load)
+        
+        obs_shape = (4, 84, 84)
+        self.h_patches, self.w_patches = (obs_shape[1] // args.patch_size), (obs_shape[2] // args.patch_size)   
+        num_patches = self.h_patches * self.w_patches
+        
+        # Attention model
+        self.model = ViTModel(
+            num_layers=args.num_layers,
+            num_heads=args.num_heads,
+            num_actions=args.num_actions,
+            patch_size=args.patch_size,
+            in_channels=obs_shape[0],
+            seqlen=num_patches,
+            model_dim=args.model_dim,
+            mlp_hidden_dim=args.mlp_hidden_dim,
+            attn_dropout_rate=args.attn_dropout_rate
+        )
+        self.optimizer = optim.Adam(self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=args.train_epochs, eta_min=1e-10)
+
+    def save_checkpoint(self):
+        state = {
+            'model': self.model.state_dict(), 
+            'optim': self.optim.state_dict(), 
+            'scheduler': self.scheduler.state_dict()
+        }
+        torch.save(state, os.path.join(self.output_dir, "checkpoint.pt"))
+    
+    def load_checkpoint(self, ckpt_dir):
+        file = os.path.join(ckpt_dir, "checkpoint.pt")
+        if os.path.exists(file):
+            state = torch.load(file, map_location=self.device)
+            self.model.load_state_dict(state['model'])
+            self.optimizer.load_state_dict(state['optim'])
+            self.scheduler.load_state_dict(state['scheduler'])
+            
+            self.output_dir = ckpt_dir
+            self.logger.print("Successfully loaded model checkpoint", mode="info")
+        else:
+            raise FileNotFoundError(f"Could not find checkpoint at {ckpt_dir}")
+        
+    def process_state(self, state):
+        state = torch.from_numpy(state) / 255.0
+        return state.to(self.device)
+        
+    @torch.no_grad
+    def initialize_memory(self):
+        state = self.process_state(self.env.reset())
+        
+        for step in range(self.config["memory_size"]):
+            action = self.agent.select_action(state, train=False)
+            next_frames, reward, done, _ = self.env.step(action)
+            next_state = self.process_state(next_frames)
+            
+            self.memory.add_sample(state, action, next_state, reward, done)
+            state = next_state if not done else self.process_state(self.env.reset())            
+            utils.progress_bar(progress=(step+1)/self.config["memory_size"], desc="Initializing memory", status="")
+    
+    def train_step(self, batch):
+        states, actions = batch[0].to(self.device), batch[1].to(self.device)
+        output, _ = self.model(states)
+        loss = F.cross_entropy(output, actions)
+        acc = output.argmax(-1).eq(actions).float().mean().item()
+        
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return loss.item(), acc 
+    
+    @torch.no_grad()
+    def eval_step(self, batch):
+        states, actions = batch[0].to(self.device), batch[1].to(self.device)
+        output, _ = self.model(states)
+        loss = F.cross_entropy(output, actions)
+        acc = output.argmax(-1).eq(actions).float().mean().item()
+        return loss.item(), acc
+        
+    def train(self):
+        self.initialize_memory()
+        self.logger.print("Beginning training", mode="info")
+        
+        for epoch in range(self.start_epoch, self.config["train_epochs"]+1):
+            self.agent.train()
+            train_meter = utils.AverageMeter()
+            desc = "[TRAIN] Epoch {:3d}/{:3d}".format(epoch, self.config["train_epochs"])
+            
+            for epoch in range(self.args.train_epochs):
+                for step in range(self.args.train_steps_per_epoch):
+                    batch = self.memory.get_batch(self.args.batch_size)
+                    loss, acc = self.train_step(batch)
+                    train_meter.add({'train loss': loss, 'train accuracy': acc})
+                    utils.progress_bar((step+1)/self.args.train_steps_per_epoch, desc, train_meter.return_msg())
+
+                if self.args.log_wandb:
+                    wandb.log({"Epoch": epoch, **train_meter.return_dict()})
+                self.logger.write("Epoch {:3d}/{:3d} {}".format(
+                    epoch, self.config["train_epochs"], train_meter.return_msg()
+                ), mode="train")
+                
+                # Eval loop
+                if epoch % self.config["eval_every"] == 0:
+                    self.agent.eval()
+                    val_meter = utils.AverageMeter()
+                    desc = "{}[VALID] Epoch {:3d}/{:3d}{}".format(
+                        utils.COLORS["blue"], epoch, self.args.train_epochs, utils.COLORS["end"]
+                    )
+                    for step in range(self.args.eval_steps_per_epoch):
+                        batch = self.memory.get_batch(self.args.batch_size)
+                        loss, acc = self.eval_step(batch)
+                        val_meter.add({'val loss': loss, 'val accuracy': acc})
+                        utils.progress_bar((step+1)/self.args.eval_steps_per_epoch, desc, val_meter.return_msg())
+
+                    avg_metrics = val_meter.return_dict()
+                    if self.args.log_wandb:
+                        wandb.log({"Epoch": epoch, **val_meter})
+                    self.logger.record("Epoch {:3d}/{:3d} {}".format(
+                        epoch, self.config["train_epochs"], val_meter.return_msg()
+                    ), mode="val")
+                    
+                    if avg_metrics["val accuracy"] > self.best_acc:
+                        self.best_acc = avg_metrics["val accuracy"]
+                        self.save_checkpoint() 
+                        
+                # Refresh replay memory every few epochs 
+                if epoch % self.args.mem_refresh_interval == 0:
+                    self.initialize_memory()
+                
+        print()
+        self.logger.print("Completed training", mode="info")
+        
+    @torch.no_grad()
+    def visualize_attn(self):
+        episode_finished = False 
+        total_reward = 0
+        self.model.eval()
+        
+        all_states, all_attn_probs = [], []
+        state = self.env.reset()
+        
+        while not episode_finished:
+            output, attn_probs = self.model(self.process_state(state))
+            action = output.argmax(-1).item()
+            all_attn_probs.append(attn_probs[self.args.num_layers-1][0])
+            all_states.append(state[0])
+            
+            next_state, reward, done, _ = self.env.step(action)
+            total_reward += reward
+            if not done:
+                state = next_state
+            else:
+                episode_finished = True     
+                
+        # Generate attention visualization
+        os.makedirs(os.path.join(self.output_dir, 'attn_viz'), exist_ok=True)
+        
+        for i, (state, attn_prob) in enumerate(zip(all_states, all_attn_probs)):
+            for j in range(self.args.num_heads+1):
+                plt.figure(figsize=(4 * (self.args.num_heads+1), 4))
+                
+                if j == 0:
+                    plt.subplot(1, self.num_heads+1, 1)
+                    plt.imshow(state[-1, :, :], cmap='gray')
+                    plt.axis('off')
+                else:
+                    attn = attn_prob[j, 0, 1:].detach().cpu().numpy().reshape(self.h_patches, self.w_patches)
+                    attn = cv2.resize(attn, (state.shape[2], state.shape[1]), cv2.INTER_AREA)
+                    plt.subplot(1, self.num_heads+1, j+1)
+                    plt.imshow(attn, cmap='plasma', vmin=attn.min(), vmax=attn.max())
+                    plt.axis('off')
+                
+                plt.tight_layout()
+                plt.savefig(os.path.join(self.output_dir, 'attn_viz', f'{i}.png'))
+                plt.close()
+        
+        return total_reward

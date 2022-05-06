@@ -84,7 +84,7 @@ def progress_bar(progress=0, desc="Progress", status="", barlen=20):
         status = "{}".format(status.ljust(30))
     length = int(round(barlen * progress))
     text = "\r{}: [{}] {:.2f}% {}".format(
-        desc, COLORS["green"] + "="*(length-1) + ">" + COLORS["end"] + " " * (barlen-length), progress * 100, status  
+        desc, COLORS["green"] + "="*(length-1) + ">" + COLORS["end"] + "-" * (barlen-length), progress * 100, status  
     ) 
     print(text, end="" if progress < 1 else "\n") 
 
@@ -93,7 +93,7 @@ def open_config(file):
         config = yaml.safe_load(f)
     return config 
 
-def initialize_experiment(args, output_root, seed=420):
+def initialize_experiment(args, output_root, ckpt_dir=None, seed=420):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -104,22 +104,26 @@ def initialize_experiment(args, output_root, seed=420):
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
+    
     config = open_config(args.config)
-    output_dir = os.path.join(output_root, args.output)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    logger = Logger(output_dir)
 
-    logger.print("Logging at {}".format(output_dir), mode="info")
-    logger.print("-" * 40)
-    logger.print("{:>20}".format("Configuration"))
-    logger.print("-" * 40)
-    logger.print(yaml.dump(config))
-    logger.print("-" * 40)
+    if ckpt_dir is None:
+        output_dir = os.path.join(output_root, args.output)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        logger = Logger(output_dir)
 
-    with open(os.path.join(output_dir, "hyperparameters.txt"), "w") as f:
-        f.write(yaml.dump(config))
+        logger.print("Logging at {}".format(output_dir), mode="info")
+        logger.print("-" * 40)
+        logger.print("{:>20}".format("Configuration"))
+        logger.print("-" * 40)
+        logger.print(yaml.dump(config))
+        logger.print("-" * 40)
+
+        with open(os.path.join(output_dir, "hyperparameters.txt"), "w") as f:
+            f.write(yaml.dump(config))
+    else:
+        output_dir = ckpt_dir
 
     device = torch.device("cpu")
     if torch.cuda.is_available():
