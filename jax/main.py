@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 
 from networks import *
 from envs.envs import *
+from datetime import datetime as dt
 
 
 class ReplayMemory:
@@ -67,9 +68,9 @@ def save_checkpoint(epoch, state, params, output_dir):
 
 def main(args):
     
-    rng = jax.random.PRNGKey(args.seed)
+    rng = jax.random.PRNGKey(0)
     config, output_dir, logger, device = utils.initialize_experiment(
-        args, output_dir=f'outputs/attention/{args.env_type}/{args.env_name}', ckpt_dir=args.load
+        args, output_root=f'outputs/attention/{args.env_type}/{args.env_name}', ckpt_dir=args.load
     )
     if args.log_wandb:
         run = wandb.init(project="atari-experiments")
@@ -87,8 +88,8 @@ def main(args):
         env = VizdoomEnv(args.env_name, **config['environment'])
  
     assert args.load is not None, f'Agent checkpoint needed for attention training'            
-    agent = load_checkpoint(args.load)
-    memory = ReplayMemory(args.memory_size, device, config['environment']['frame_stack'])        
+    agent = load_checkpoint(args.load, device)
+    memory = ReplayMemory(args.memory_size, config['environment']['frame_stack'])        
     state_shape = (84, 84, config['environment']['frame_stack'])
     
     # Attention model
@@ -106,25 +107,24 @@ def main(args):
     
     params = model.init(init_rngs, jnp.ones((args.batch_size, *state_shape)))
     lr_func = optax.cosine_decay_schedule(
-        init_value=args.base_lr, decay_steps=args.train_steps_per_epoch * args.train_epochs, alpha=1e-10
+        init_value=args.lr, decay_steps=args.train_steps_per_epoch * args.train_epochs, alpha=1e-10
     )
     optim = optax.adamw(learning_rate=lr_func, b1=0.9, b2=0.999, weight_decay=args.weight_decay)
     model_state = optim.init(params)
     
     def process_state(state):
-        state = jnp.asarray(state / 255.0)
-        return state
+        state = torch.from_numpy(state / 255.0).permute(0, 3, 1, 2).contiguous().float()
+        return state.to(device)
     
     def initialize_memory():
-        state = process_state(env.reset())
+        state = env.reset()
         
         for step in range(args.memory_size):
-            action = agent.select_action(state, train=False)
-            next_frames, reward, done, _ = env.step(action)
-            next_state = process_state(next_frames)
+            action = agent.select_action(process_state(state), train=False)
+            next_state, reward, done, _ = env.step(action)
             
             memory.add_sample(state, action, next_state, reward, done)
-            state = next_state if not done else process_state(env.reset())            
+            state = next_state if not done else env.reset()            
             utils.progress_bar(progress=(step+1)/args.memory_size, desc="Initializing memory", status="")
     
     @jax.jit
@@ -238,7 +238,6 @@ if __name__ == '__main__':
     ap.add_argument('--task', required=True, choices=["train", "anim"], type=str)
     ap.add_argument('--output', default=dt.now().strftime('%Y-%m-%d_%H-%M'), type=str)
     ap.add_argument('--dset_save_dir', default='./datasets', type=str)
-    ap.add_argument('--num_samples', default=1_000_000, type=int)
     
     # Attention training args
     ap.add_argument('--patch_size', default=4, type=int)
@@ -251,6 +250,7 @@ if __name__ == '__main__':
     ap.add_argument('--lr', default=0.0001, type=float)
     ap.add_argument('--weight_decay', default=1e-06, type=float)
     ap.add_argument('--train_epochs', default=100, type=int)
+    ap.add_argument('--memory_size', default=1000, type=int)
     ap.add_argument('--train_steps_per_epoch', default=1000, type=int)
     ap.add_argument('--eval_steps_per_epoch', default=1000, type=int)
     ap.add_argument('--mem_refresh_interval', default=5, type=int)
