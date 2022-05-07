@@ -59,6 +59,15 @@ def load_checkpoint(ckpt_dir, device):
         return torch.load(file, map_location=device)
     else:
         raise FileNotFoundError(f"Could not find checkpoint at {ckpt_dir}")
+    
+def load_attn_checkpoint(ckpt_dir):
+    file = os.path.join(ckpt_dir, 'ckpt.pkl')
+    if os.path.exists(file):
+        with open(file, 'rb') as f:
+            savedata = pickle.load(f)
+            return savedata 
+    else:
+        raise FileNotFoundError(f"Could not find checkpoint at {ckpt_dir}")
 
 def save_checkpoint(epoch, state, params, output_dir):
     state = {'params': params, 'optim': state, 'epoch': epoch}
@@ -86,7 +95,7 @@ def main(args):
         env = HighwayEnv(args.env_name, **config['environment'])
     elif args.env_type == 'vizdoom':
         env = VizdoomEnv(args.env_name, **config['environment'])
- 
+
     assert args.load is not None, f'Agent checkpoint needed for attention training'            
     agent = load_checkpoint(args.load, device)
     memory = ReplayMemory(args.memory_size, config['environment']['frame_stack'])        
@@ -156,75 +165,77 @@ def main(args):
         loss = optax.softmax_cross_entropy(logits, labels).mean()
         acc = jnp.mean(jnp.argmax(logits, -1) == actions)
         return loss, acc
-            
+                
     # Training
-    initialize_memory()
-    logger.print("Beginning training", mode="info")
-    
-    for epoch in range(start_epoch, args.train_epochs+1):
-        agent.train()
-        train_meter = utils.AverageMeter()
-        desc = "[TRAIN] Epoch {:3d}/{:3d}".format(epoch, args.train_epochs)
+    if not args.viz_dataset:
+        initialize_memory()
+        logger.print("Beginning training", mode="info")
         
-        for step in range(args.train_steps_per_epoch):
-            batch = memory.get_batch(args.batch_size)
-            loss, acc, params, model_state = train_step(params, model_state, batch)
-            train_meter.add({'train loss': loss, 'train accuracy': acc})
-            utils.progress_bar((step+1)/args.train_steps_per_epoch, desc, train_meter.return_msg())
-
-        if args.log_wandb:
-            wandb.log({"Epoch": epoch, **train_meter.return_dict()})
-        logger.write("Epoch {:3d}/{:3d} {}".format(
-            epoch, config["train_epochs"], train_meter.return_msg()
-        ), mode="train")
-        
-        # Refresh replay memory every few epochs 
-        if epoch != args.train_epochs and epoch % args.mem_refresh_interval == 0:
-            initialize_memory()
-        
-        # Eval loop
-        if epoch % config["eval_every"] == 0:
-            agent.eval()
-            val_meter = utils.AverageMeter()
-            desc = "{}[VALID] Epoch {:3d}/{:3d}{}".format(
-                utils.COLORS["blue"], epoch, args.train_epochs, utils.COLORS["end"]
-            )
-            for step in range(args.eval_steps_per_epoch):
+        for epoch in range(start_epoch, args.train_epochs+1):
+            agent.train()
+            train_meter = utils.AverageMeter()
+            desc = "[TRAIN] Epoch {:3d}/{:3d}".format(epoch, args.train_epochs)
+            
+            for step in range(args.train_steps_per_epoch):
                 batch = memory.get_batch(args.batch_size)
-                loss, acc = eval_step(params, batch)
-                val_meter.add({'val loss': loss, 'val accuracy': acc})
-                utils.progress_bar((step+1)/args.eval_steps_per_epoch, desc, val_meter.return_msg())
+                loss, acc, params, model_state = train_step(params, model_state, batch)
+                train_meter.add({'train loss': loss, 'train accuracy': acc})
+                utils.progress_bar((step+1)/args.train_steps_per_epoch, desc, train_meter.return_msg())
 
-            avg_metrics = val_meter.return_dict()
             if args.log_wandb:
-                wandb.log({"Epoch": epoch, **avg_metrics})
-            logger.record("Epoch {:3d}/{:3d} {}".format(
-                epoch, config["train_epochs"], val_meter.return_msg()
-            ), mode="val")
+                wandb.log({"Epoch": epoch, **train_meter.return_dict()})
+            logger.write("Epoch {:3d}/{:3d} {}".format(
+                epoch, config["train_epochs"], train_meter.return_msg()
+            ), mode="train")
             
-            if avg_metrics["val accuracy"] > best_acc:
-                best_acc = avg_metrics["val accuracy"]
-                save_checkpoint(epoch, model_state, params, output_dir) 
-                    
-    print()
-    logger.print("Completed training", mode="info")
-    
-    # Create a small dataset for visualization
-    os.makedirs(f'datasets/{args.env_name}', exist_ok=True)
-    states, actions = [], []
-    state = env.reset()
-    
-    for step in range(1000):
-        action = agent.select_action(process_state(state), train=False)
-        states.append(state), actions.append(action)
+            # Refresh replay memory every few epochs 
+            if epoch != args.train_epochs and epoch % args.mem_refresh_interval == 0:
+                initialize_memory()
+            
+            # Eval loop
+            if epoch % config["eval_every"] == 0:
+                agent.eval()
+                val_meter = utils.AverageMeter()
+                desc = "{}[VALID] Epoch {:3d}/{:3d}{}".format(
+                    utils.COLORS["blue"], epoch, args.train_epochs, utils.COLORS["end"]
+                )
+                for step in range(args.eval_steps_per_epoch):
+                    batch = memory.get_batch(args.batch_size)
+                    loss, acc = eval_step(params, batch)
+                    val_meter.add({'val loss': loss, 'val accuracy': acc})
+                    utils.progress_bar((step+1)/args.eval_steps_per_epoch, desc, val_meter.return_msg())
 
-        next_state, _, done, _ = env.step(action)
-        state = process_state(next_state if not done else env.reset())        
-        utils.progress_bar(progress=(step+1)/1000, desc="Visualization dataset", status="")
-            
-    savedata = {'states': np.concatenate(states, 0), 'actions': np.array(actions)}
-    with open(f'datasets/{args.env_name}/data.pkl', 'wb') as f:
-        pickle.dump(savedata, f)
+                avg_metrics = val_meter.return_dict()
+                if args.log_wandb:
+                    wandb.log({"Epoch": epoch, **avg_metrics})
+                logger.record("Epoch {:3d}/{:3d} {}".format(
+                    epoch, config["train_epochs"], val_meter.return_msg()
+                ), mode="val")
+                
+                if avg_metrics["val accuracy"] > best_acc:
+                    best_acc = avg_metrics["val accuracy"]
+                    save_checkpoint(epoch, model_state, params, output_dir) 
+                        
+        print()
+        logger.print("Completed training", mode="info")
+    
+    else:
+        # Create a small dataset for visualization
+        os.makedirs(f'datasets/{args.env_name}', exist_ok=True)
+        states, actions = [], []
+        state = env.reset()
+        
+        for step in range(1000):
+            action = agent.select_action(process_state(state), train=False)
+            states.append(state), actions.append(action)
+
+            next_state, _, done, _ = env.step(action)
+            state = next_state if not done else env.reset()
+            utils.progress_bar(progress=(step+1)/1000, desc="Visualization dataset", status="")
+                
+        savedata = {'states': np.concatenate(states, 0), 'actions': np.array(actions)}
+        with open(f'datasets/{args.env_name}/data.pkl', 'wb') as f:
+            pickle.dump(savedata, f)
         
 
 if __name__ == '__main__':
@@ -233,6 +244,7 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--load', default=None)
     ap.add_argument('--resume', default=None)
+    ap.add_argument('--viz_dataset', action='store_true', default=False)
     ap.add_argument('--log_wandb', action='store_true', default=False)
     ap.add_argument('--config', required=True)
     ap.add_argument('--env_name', required=True, type=str)
