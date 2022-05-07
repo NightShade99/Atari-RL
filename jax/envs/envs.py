@@ -152,7 +152,7 @@ class VizdoomEnv:
         if return_unwarped:
             return (
                 np.expand_dims(np.asarray(self.state_deck), 0).astype(np.uint8),
-                np.expand_dims(np.asarray(self.state_deck_unwarped),0).astype(np.uint8)
+                np.expand_dims(np.asarray(self.state_deck_unwarped), 0).astype(np.uint8)
             )
         else:
             return np.expand_dims(np.asarray(self.state_deck), 0).astype(np.uint8) 
@@ -162,11 +162,13 @@ class VizdoomEnv:
         done = self.env.is_episode_finished()
         if done:
             next_state = np.zeros_like(self.state_deck[-1])
+            next_state_unwarped = np.zeros_like(self.state_deck_unwarped[-1])
         else:
             next_state = self._warp(self.env.get_state().screen_buffer)        
             next_state_unwarped = self.env.get_state().screen_buffer
+        
         self.state_deck.append(next_state)
-        self.state_deck_unwarped.append(next_state)
+        self.state_deck_unwarped.append(next_state_unwarped)
         
         if return_unwarped:
             return (
