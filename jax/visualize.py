@@ -81,7 +81,7 @@ def main(args):
     
     # Generate visualization frames
     meter = utils.AverageMeter()
-    resolution = (state_shape[1], state_shape[0])
+    resolution = (state_shape[2], state_shape[1])
     os.makedirs(os.path.join(expt_dir, 'attn_viz'), exist_ok=True)
     
     for step, batch in enumerate(loader):

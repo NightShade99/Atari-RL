@@ -223,13 +223,13 @@ def main(args):
         # Create a small dataset for visualization
         os.makedirs(f'datasets/{args.env_name}', exist_ok=True)
         states, actions = [], []
-        state = env.reset()
+        state = env.reset(warp_frames=False)
         
         for step in range(1000):
             action = agent.select_action(process_state(state), train=False)
             states.append(state), actions.append(action)
 
-            next_state, _, done, _ = env.step(action)
+            next_state, _, done, _ = env.step(action, warp_frames=False)
             state = next_state if not done else env.reset()
             utils.progress_bar(progress=(step+1)/1000, desc="Visualization dataset", status="")
                 
