@@ -27,6 +27,15 @@ def main(args):
     states, actions = load_data(args.data_path)
     dset = ExperienceDataset(states, actions)
     
+    loader = MultiEpochsDataLoader(
+        dset,
+        shuffle=False,
+        drop_last=True,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        collate_fn=numpy_collate
+    )
+    
     # To preserve RAM, delete copy of states and actions
     state_shape = states[0].shape
     del states, actions
@@ -75,35 +84,36 @@ def main(args):
     resolution = (state_shape[1], state_shape[0])
     os.makedirs(os.path.join(expt_dir, 'attn_viz'), exist_ok=True)
     
-    for i, sample in enumerate(dset):
-        states, actions = jnp.expand_dims(jnp.asarray(sample[0]), 0), jnp.asarray(actions)   
+    for step, batch in enumerate(loader):
+        states, actions = jnp.expand_dims(jnp.asarray(batch[0]).transpose((0, 2, 3, 1)), 0), jnp.asarray(batch[1])   
         acc, attn_probs = forward(params, (states, actions))
         meter.add({'accuracy': acc})
             
-        plt.figure(figsize=(4 * (args.num_heads+1), 4))
-        for j in range(args.num_heads+1): 
-                           
-            # In first frame show the observation
-            if j == 0:
-                plt.subplot(1, args.num_heads+1, 1)
-                plt.imshow(states[0, :, :, -1], cmap='gray')
-                plt.axis('off')
+        for i in range(states.shape[0]):
+            plt.figure(figsize=(4 * (args.num_heads+1), 4))
+            for j in range(args.num_heads+1): 
+                            
+                # In first frame show the observation
+                if j == 0:
+                    plt.subplot(1, args.num_heads+1, 1)
+                    plt.imshow(states[i, :, :, -1], cmap='gray')
+                    plt.axis('off')
+                    
+                # Then show the attention maps for each head
+                else:
+                    # The prob of a layer has shape (batch_size, num_heads, 442, 442)
+                    # After the operation below, we have selected i-th sample, (j-1)-th head ...
+                    # ... and attn probs corresponding to CLS token for remaining 441 tokens
+                    attn = attn_probs[args.num_layers-1][i, j-1, 0, 1:].reshape(21, 21)
+                    attn = cv2.resize(np.asarray(attn), resolution, cv2.INTER_AREA)
+                    
+                    plt.subplot(1, args.num_heads+1, j+1)
+                    plt.imshow(attn, cmap='plasma', vmin=attn.min(), vmax=attn.max())
+                    plt.axis('off')
                 
-            # Then show the attention maps for each head
-            else:
-                # The prob of a layer has shape (batch_size, num_heads, 442, 442)
-                # After the operation below, we have selected i-th sample, (j-1)-th head ...
-                # ... and attn probs corresponding to CLS token for remaining 441 tokens
-                attn = attn_probs[args.num_layers-1][0, j-1, 0, 1:].reshape(21, 21)
-                attn = cv2.resize(np.asarray(attn), resolution, cv2.INTER_AREA)
-                
-                plt.subplot(1, args.num_heads+1, j+1)
-                plt.imshow(attn, cmap='plasma', vmin=attn.min(), vmax=attn.max())
-                plt.axis('off')
-            
-        plt.tight_layout()
-        plt.savefig(os.path.join(expt_dir, 'attn_viz', f'{i}.png'))
-        plt.close()
+            plt.tight_layout()
+            plt.savefig(os.path.join(expt_dir, 'attn_viz', f'{step * args.batch_size + i}.png'))
+            plt.close()
                     
         utils.progress_bar((i+1)/len(dset), "Generating visualization", meter.return_msg())
     
@@ -118,10 +128,11 @@ if __name__ == '__main__':
     ap.add_argument('--train_split', type=float, default=0.8)
     ap.add_argument('--num_workers', type=int, default=4)
     ap.add_argument('--num_heads', type=int, default=1)
-    ap.add_argument('--num_layers', type=int, default=4)
+    ap.add_argument('--num_layers', type=int, default=2)
     ap.add_argument('--patch_size', type=int, default=4)
-    ap.add_argument('--model_dim', type=int, default=512)
-    ap.add_argument('--mlp_hidden_dim', type=int, default=2048)
+    ap.add_argument('--batch_size', type=int, default=128)
+    ap.add_argument('--model_dim', type=int, default=256)
+    ap.add_argument('--mlp_hidden_dim', type=int, default=512)
     ap.add_argument('--attn_dropout_rate', type=float, default=0.1)
     args = ap.parse_args()
     

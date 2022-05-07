@@ -249,7 +249,6 @@ if __name__ == '__main__':
     ap.add_argument('--config', required=True)
     ap.add_argument('--env_name', required=True, type=str)
     ap.add_argument('--env_type', required=True, choices=["atari", "vizdoom", "highway"], type=str)
-    ap.add_argument('--task', required=True, choices=["train", "anim"], type=str)
     ap.add_argument('--output', default=dt.now().strftime('%Y-%m-%d_%H-%M'), type=str)
     ap.add_argument('--dset_save_dir', default='./datasets', type=str)
     
