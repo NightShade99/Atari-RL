@@ -115,7 +115,7 @@ def main(args):
             plt.savefig(os.path.join(expt_dir, 'attn_viz', f'{step * args.batch_size + i}.png'))
             plt.close()
                     
-        utils.progress_bar((i+1)/len(dset), "Generating visualization", meter.return_msg())
+        utils.progress_bar((step+1)/len(loader), "Generating visualization", meter.return_msg())
     
     
 if __name__ == '__main__':
