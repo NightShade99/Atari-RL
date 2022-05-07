@@ -223,14 +223,14 @@ def main(args):
         # Create a small dataset for visualization
         os.makedirs(f'datasets/{args.env_name}', exist_ok=True)
         states, actions = [], []
-        state = env.reset(warp_frames=False)
-        
+
+        state, state_unwarped = env.reset(return_unwarped=True)        
         for step in range(1000):
             action = agent.select_action(process_state(state), train=False)
-            states.append(state), actions.append(action)
+            states.append(state_unwarped), actions.append(action)
 
-            next_state, _, done, _ = env.step(action, warp_frames=False)
-            state = next_state if not done else env.reset()
+            next_state, next_state_unwarped, _, done, _ = env.step(action, return_unwarped=True)
+            state, state_unwarped = (next_state, next_state_unwarped) if not done else env.reset()
             utils.progress_bar(progress=(step+1)/1000, desc="Visualization dataset", status="")
                 
         savedata = {'states': np.concatenate(states, 0), 'actions': np.array(actions)}
