@@ -85,7 +85,7 @@ def main(args):
     os.makedirs(os.path.join(expt_dir, 'attn_viz'), exist_ok=True)
     
     for step, batch in enumerate(loader):
-        states, actions = jnp.expand_dims(jnp.asarray(batch[0]).transpose((0, 2, 3, 1)), 0), jnp.asarray(batch[1])   
+        states, actions = jnp.asarray(batch[0]).transpose((0, 2, 3, 1)), jnp.asarray(batch[1])   
         acc, attn_probs = forward(params, (states, actions))
         meter.add({'accuracy': acc})
             
@@ -96,7 +96,7 @@ def main(args):
                 # In first frame show the observation
                 if j == 0:
                     plt.subplot(1, args.num_heads+1, 1)
-                    plt.imshow(states[i, :, :, -1], cmap='gray')
+                    plt.imshow(cv2.resize(states[i, :, :, -1], (160, 160), cv2.INTER_AREA), cmap='gray')
                     plt.axis('off')
                     
                 # Then show the attention maps for each head
