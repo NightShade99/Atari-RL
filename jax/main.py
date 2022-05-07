@@ -113,7 +113,7 @@ def main(args):
     model_state = optim.init(params)
     
     def process_state(state):
-        state = torch.from_numpy(state / 255.0).permute(0, 3, 1, 2).contiguous().float()
+        state = torch.from_numpy(state / 255.0).float()
         return state.to(device)
     
     def initialize_memory():
@@ -129,12 +129,13 @@ def main(args):
     
     @jax.jit
     def train_step(params, state, batch):
-        states, actions = batch 
+        states, actions = batch[0], batch[1] 
+        states = jnp.transpose(states, (0, 2, 3, 1))
         
         def loss_fn(params):
             output, _ = model.apply(params, states, training=True, rngs={'dropout': dropout_rng})
             logits = nn.log_softmax(output, axis=-1)
-            labels = jax.nn.one_hot(actions, args.num_actions)
+            labels = jax.nn.one_hot(actions, env.num_actions)
             loss = optax.softmax_cross_entropy(logits, labels).mean()
             acc = jnp.mean(jnp.argmax(logits, -1) == actions)
             return loss, acc
@@ -146,11 +147,12 @@ def main(args):
     
     @jax.jit
     def eval_step(params, batch):
-        states, actions = batch 
+        states, actions = batch[0], batch[1]
+        states = jnp.transpose(states, (0, 2, 3, 1))
         
         output, _ = model.apply(params, states, training=False, rngs={'dropout': dropout_rng})
         logits = nn.log_softmax(output, axis=-1)
-        labels = jax.nn.one_hot(actions, args.num_actions)
+        labels = jax.nn.one_hot(actions, env.num_actions)
         loss = optax.softmax_cross_entropy(logits, labels).mean()
         acc = jnp.mean(jnp.argmax(logits, -1) == actions)
         return loss, acc
@@ -176,6 +178,10 @@ def main(args):
             epoch, config["train_epochs"], train_meter.return_msg()
         ), mode="train")
         
+        # Refresh replay memory every few epochs 
+        if epoch != args.train_epochs and epoch % args.mem_refresh_interval == 0:
+            initialize_memory()
+        
         # Eval loop
         if epoch % config["eval_every"] == 0:
             agent.eval()
@@ -191,7 +197,7 @@ def main(args):
 
             avg_metrics = val_meter.return_dict()
             if args.log_wandb:
-                wandb.log({"Epoch": epoch, **val_meter})
+                wandb.log({"Epoch": epoch, **avg_metrics})
             logger.record("Epoch {:3d}/{:3d} {}".format(
                 epoch, config["train_epochs"], val_meter.return_msg()
             ), mode="val")
@@ -199,11 +205,7 @@ def main(args):
             if avg_metrics["val accuracy"] > best_acc:
                 best_acc = avg_metrics["val accuracy"]
                 save_checkpoint(epoch, model_state, params, output_dir) 
-                
-        # Refresh replay memory every few epochs 
-        if epoch != args.train_epochs and epoch % args.mem_refresh_interval == 0:
-            initialize_memory()
-            
+                    
     print()
     logger.print("Completed training", mode="info")
     
