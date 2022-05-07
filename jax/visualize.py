@@ -81,7 +81,7 @@ def main(args):
     
     # Generate visualization frames
     meter = utils.AverageMeter()
-    resolution = (state_shape[2], state_shape[1])
+    resolution = (state_shape[2] * 2, state_shape[1] * 2)
     os.makedirs(os.path.join(expt_dir, 'attn_viz'), exist_ok=True)
     
     for step, batch in enumerate(loader):
@@ -96,7 +96,7 @@ def main(args):
                 # In first frame show the observation
                 if j == 0:
                     plt.subplot(1, args.num_heads+1, 1)
-                    plt.imshow(cv2.resize(states[i, :, :, -1], (160, 160), cv2.INTER_AREA), cmap='gray')
+                    plt.imshow(cv2.resize(np.asarray(states[i, :, :, -1]).astype(np.float32), resolution, cv2.INTER_AREA), cmap='gray')
                     plt.axis('off')
                     
                 # Then show the attention maps for each head
