@@ -230,7 +230,7 @@ def main(args):
             states.append(state_unwarped), actions.append(action)
 
             next_state, next_state_unwarped, _, done, _ = env.step(action, return_unwarped=True)
-            state, state_unwarped = (next_state, next_state_unwarped) if not done else env.reset()
+            state, state_unwarped = (next_state, next_state_unwarped) if not done else env.reset(return_unwarped=True)
             utils.progress_bar(progress=(step+1)/1000, desc="Visualization dataset", status="")
                 
         savedata = {'states': np.concatenate(states, 0), 'actions': np.array(actions)}
