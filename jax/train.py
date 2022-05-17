@@ -5,6 +5,7 @@ import copy
 import optax
 import pickle
 import random
+import numpy as np
 import jax.numpy as jnp
 import flax.linen as nn
 
@@ -73,7 +74,7 @@ def main(args):
     online_q_params = q_network.init(qnet_rng, jnp.ones((1, args.enc_feature_dim)))
     target_q_params = copy.deepcopy(online_q_params) 
     proj_params = proj_head.init(proj_rng, jnp.ones((1, args.enc_feature_dim)))
-    
+        
     # Optimizers and model states
     qnet_optim = optax.adamw(learning_rate=args.qnet_lr, b1=0.9, b2=0.999, weight_decay=args.qnet_weight_decay)
     proj_optim = optax.adamw(learning_rate=args.proj_lr, b1=0.9, b2=0.999, weight_decay=args.proj_weight_decay)
@@ -149,7 +150,7 @@ def main(args):
         return loss, params, qnet_state 
         
     @jax.jit
-    def update_proj(states, proj_state):
+    def update_sim(states, proj_state):
         # 'states' is a list of batch of states indexed by the action
         # taken on them. The size of each batch could vary.
         perm_states = []
@@ -202,14 +203,14 @@ def main(args):
         params = optax.apply_updates(params, updates)
         return loss, params, proj_state
     
-    def train_episode(episode):
-        total_reward = 0 
+    def train_episode():
+        rewards, q_losses, sim_losses = [], [], []
         state = env.reset()
         
         while True:
             action = select_action(state)
             next_state, reward, done, _ = env.step(action)
-            total_reward += reward
+            rewards.append(reward)
             
             memory[action].add(state, action, reward, next_state, done)
             
@@ -217,11 +218,19 @@ def main(args):
                 batch = memory.sample(args.batch_size, separate=False)
                 loss, new_params, qnet_state = update_qnet(*batch, qnet_state)
                 enc_params, online_q_params = new_params['enc'], new_params['qnet']
+                q_losses.append(loss)
+                
+            if global_step % args.sim_learning_interval == 0:
+                batches = memory.sample(args.batch_size, separate=True)
+                loss, new_params, proj_state = update_sim(batches, proj_state)
+                enc_params, proj_params = new_params['enc'], new_params['proj']
+                sim_losses.append(loss)
                 
             if not done:
                 state = next_state
             else:
                 break
             
-            
-            
+        return np.mean(rewards), np.mean(q_losses), np.mean(sim_losses)  
+    
+    
