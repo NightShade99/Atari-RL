@@ -1,172 +1,93 @@
 
-import math
-import torch 
-import torch.nn as nn 
-import torch.nn.functional as F
-
+from sre_parse import State
 import jax
-import jax.numpy as jnp 
-import flax.linen as fnn 
+import jax.numpy as jnp
+import flax.linen as nn
 
-__all__ = [
-    'StateEncoder', 'QNetwork', 'MultiHeadSelfAttention', 'ViTLayer', 'ViTModel'
-]
+__all__ = ['StateEncoder', 'QNetwork', 'ProjectionHead']
 
 
 class StateEncoder(nn.Module):
+    feature_dim: int 
     
-    def __init__(self, input_channels):
-        super(StateEncoder, self).__init__()
-        self.conv1 = nn.Conv2d(input_channels, 32, kernel_size=8, stride=4, bias=False)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2, bias=False)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, bias=False)            
-        self.conv4 = nn.Conv2d(64, 1024, kernel_size=7, stride=1, bias=False)
-        self.relu = nn.ReLU()
-        self.out_dim = 1024
-
-    def forward(self, x):
-        x = self.relu(self.conv1(x))
-        x = self.relu(self.conv2(x))
-        x = self.relu(self.conv3(x))
-        x = self.relu(self.conv4(x))
-        x = torch.flatten(x, 1)
+    @nn.compact 
+    def __call__(self, x):
+        x = nn.Conv(32, (8, 8), (4, 4), padding='VALID', use_bias=False)(x)
+        x = nn.relu(x)
+        x = nn.Conv(64, (4, 4), (2, 2), padding='VALID', use_bias=False)(x)
+        x = nn.relu(x)
+        x = nn.Conv(64, (3, 3), (1, 1), padding='VALID', use_bias=False)(x)
+        x = nn.relu(x)
+        x = nn.Conv(self.feature_dim, (7, 7), (1, 1), padding='VALID', use_bias=False)(x)
+        x = nn.relu(x)
+        x = x.reshape(-1, self.feature_dim)
         return x
     
-    
-class QNetwork(nn.Module):
-    """ Dueling DQN architecture """
 
-    def __init__(self, input_channels, hidden_dim, action_size):
-        super(QNetwork, self).__init__()
-        self.encoder = StateEncoder(input_channels)
-        self.value = nn.Sequential(
-            nn.Linear(self.encoder.out_dim // 2, hidden_dim), 
-            nn.ReLU(), 
-            nn.Linear(hidden_dim, 1)
-        )
-        self.action = nn.Sequential(
-            nn.Linear(self.encoder.out_dim // 2, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, action_size)
-        )
-        self.init_network()
+class QNetwork(nn.Module):
+    hidden_dim: int 
+    num_actions: int
+    
+    @nn.compact 
+    def __call__(self, x):
+        x_value, x_action = jnp.split(x, 2, -1)
         
-    def init_network(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 0)
-                nn.init.constant_(m.bias, 1)
+        x_value = nn.Dense(self.hidden_dim)(x_value)
+        x_value = nn.relu(x_value)
+        x_value = nn.Dense(1)(x_value)
         
-    def forward(self, x):
-        x = self.encoder(x)
-        x_action, x_value = torch.split(x, self.encoder.out_dim // 2, 1)
-        x_action = self.action(x_action)
-        x_value = self.value(x_value)
-        q_vals = x_value + (x_action - x_action.mean(-1, keepdim=True))
+        x_action = nn.Dense(self.hidden_dim)(x_action)
+        x_action = nn.relu(x_action)
+        x_action = nn.Dense(self.num_actions)(x_action)
+        
+        q_vals = x_value + (x_action - x_action.mean(-1, keepdims=True))
         return q_vals
     
     
-def unfold_img_to_sequence(inp, patch_size):
-    assert inp.shape[1] % patch_size == 0, f'Input height {inp.shape[1]} not divisible by {patch_size}'
-    assert inp.shape[2] % patch_size == 0, f'Input width {inp.shape[2]} not divisible by {patch_size}'
+class ProjectionHead(nn.Module):
+    out_dim: int 
     
-    sequence = []
-    bs, h, w, _ = inp.shape
-    for i in range(h // patch_size):
-        for j in range(w // patch_size):
-            p = inp[:, i*patch_size:(i+1)*patch_size, j*patch_size:(j+1)*patch_size, :].reshape(bs, -1)
-            sequence.append(p)            
-    
-    return jnp.stack(sequence, 1)
-
-
-class MultiHeadSelfAttention(fnn.Module):
-    num_heads: int = 1
-    model_dim: int = 512
-    dropout_rate: float = 0.1
-    
-    def setup(self):
-        kernel_init = fnn.initializers.xavier_normal() 
-        
-        self.layernorm = fnn.LayerNorm()
-        self.dropout = fnn.Dropout(self.dropout_rate)
-        self.query = fnn.Dense(self.model_dim, use_bias=False, kernel_init=kernel_init)
-        self.key = fnn.Dense(self.model_dim, use_bias=False, kernel_init=kernel_init)
-        self.value = fnn.Dense(self.model_dim, use_bias=False, kernel_init=kernel_init)
-        
-    def __call__(self, x, training=True):
-        bs, sl, _ = x.shape 
-        head_dim = self.model_dim // self.num_heads
-        
-        x_norm = self.layernorm(x)
-        q = self.query(x_norm).reshape(bs, sl, self.num_heads, -1).transpose((0, 2, 1, 3))
-        k = self.key(x_norm).reshape(bs, sl, self.num_heads, -1).transpose((0, 2, 1, 3))
-        v = self.value(x_norm).reshape(bs, sl, self.num_heads, -1).transpose((0, 2, 1, 3))
-        
-        attn_scores = jnp.einsum('bhid,bhjd->bhij', q, k)
-        attn_probs = fnn.softmax(attn_scores / jnp.sqrt(head_dim), axis=-1)
-        attn_probs = self.dropout(attn_probs, deterministic=(not training))
-        
-        out = jnp.einsum('bhij,bhjd->bhid', attn_probs, v)
-        out = out.transpose((0, 2, 1, 3)).reshape(bs, sl, self.model_dim)
-        return out + x, attn_probs
+    @nn.compact 
+    def __call__(self, x):
+        x = nn.Dense(self.out_dim)(x)
+        x = nn.relu(x) 
+        x = nn.Dense(self.out_dim)(x)
+        return x
     
     
-class ViTLayer(fnn.Module):
-    num_heads: int = 1
-    model_dim: int = 512
-    mlp_hidden_dim: int = 2048 
-    attn_dropout_rate: float = 0.1
+# if __name__ == '__main__':
     
-    def setup(self):
-        kernel_init = fnn.initializers.xavier_normal()
-        bias_init = fnn.initializers.normal(stddev=1e-06)
-        
-        self.attention = MultiHeadSelfAttention(self.num_heads, self.model_dim, self.attn_dropout_rate)
-        self.mlp_fc1 = fnn.Dense(self.mlp_hidden_dim, kernel_init=kernel_init, bias_init=bias_init)
-        self.mlp_fc2 = fnn.Dense(self.model_dim, kernel_init=kernel_init, bias_init=bias_init)
-        self.mlp_layernorm = fnn.LayerNorm()
-        
-    def __call__(self, x, training=True):
-        x, attn_probs = self.attention(x, training)
-        x_norm = self.mlp_layernorm(x)
-        x_norm = self.mlp_fc2(fnn.gelu(self.mlp_fc1(x_norm)))
-        return x_norm + x, attn_probs
+#     import optax
+#     import flax.linen as nn 
     
+#     k = jax.random.PRNGKey(0)
+#     enc = StateEncoder(1024)
+#     qnet = QNetwork(512, 10)
     
-class ViTModel(fnn.Module):
-    num_actions: int
-    num_heads: int = 1
-    num_layers: int = 4
-    patch_size: int = 4
-    model_dim: int = 512
-    mlp_hidden_dim: int = 2048
-    attn_dropout_rate: float = 0.1
+#     enc_params = enc.init(k, jnp.ones((1, 84, 84, 4)))
+#     q_params = qnet.init(k, jnp.ones((1, 1024)))
     
-    @fnn.compact
-    def __call__(self, inp, training=True):
-        # Convert image to sequence of flattened patches
-        x = unfold_img_to_sequence(inp, self.patch_size)
-        bs, seqlen, inp_fdim = x.shape 
-         
-        # Append CLS token and scale features up to model_dim
-        cls_token = self.param('cls', fnn.initializers.zeros, (bs, 1, inp_fdim))
-        x = jnp.concatenate([cls_token, x], axis=1)
-        x = fnn.Dense(self.model_dim)(x)
+#     optim = optax.adamw(learning_rate=0.01, weight_decay=1e-06)
+#     state = optim.init({'enc': enc_params, 'qnet': q_params})
+    
+#     @jax.jit
+#     def update(state):
+#         x = jax.random.uniform(k, (32, 84, 84, 4))
+#         fs = enc.apply(enc_params, x)
         
-        # Add positional embeddings
-        pos_embeds = fnn.Embed(seqlen+1, self.model_dim)(jnp.arange(seqlen+1))
-        x = x + pos_embeds 
+#         def loss(params):
+#             out = nn.log_softmax(qnet.apply(params['qnet'], fs), -1)
+#             trg = jax.nn.one_hot(jnp.zeros((32,)), num_classes=10)
+#             loss = optax.softmax_cross_entropy(out, trg).mean()
+#             return loss 
         
-        # Pass through self attention layers 
-        layerwise_attn_probs = {}
-        for i in range(self.num_layers):
-            x, attn_probs = ViTLayer(self.num_heads, self.model_dim, self.mlp_hidden_dim, self.attn_dropout_rate)(x, training)
-            layerwise_attn_probs[i] = attn_probs
-            
-        # Classifier
-        preds = fnn.Dense(self.num_actions)(x[:, 0, :])
-        
-        return preds, layerwise_attn_probs
+#         loss, grads = jax.value_and_grad(loss)({'enc': enc_params, 'qnet': q_params})
+#         updates, state = optim.update(grads, state, {'enc': enc_params, 'qnet': q_params})
+#         new_params = optax.apply_updates(updates, {'enc': enc_params, 'qnet': q_params})
+#         return new_params
+    
+#     new_params = update(state)
+#     new_enc_params, new_q_params = new_params.values()
+    
+#     print("Encoder params:", jax.tree_map(lambda x, y: x == y, enc_params, new_enc_params))
+#     print("QNet params:", jax.tree_map(lambda x, y: x == y, q_params, new_q_params)) 
