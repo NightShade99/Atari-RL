@@ -142,8 +142,8 @@ def main(args):
         logger = Logger(out_dir)
         logger.display_args(args)
         if args.wandb:
-            wandb.init(project='rl-experiments-similarity')
-            
+            run = wandb.init(project='rl-experiments-similarity')
+            logger.write("Wandb run: {}".format(run.get_url()))
     
     def save(params, model_state):
         savedata = {'params': params, 'model_state': model_state}
